@@ -163,11 +163,11 @@ func emitOpenCodeSchemaRow(config opencodeSchemaConfig, dbNamespace, rowID strin
 		session = strings.TrimSpace(*message.SessionID)
 	}
 	agent := ""
-	if message.Mode != nil {
-		agent = strings.TrimSpace(*message.Mode)
-	}
-	if agent == "" && message.Agent != nil {
+	if message.Agent != nil {
 		agent = strings.TrimSpace(*message.Agent)
+	}
+	if agent == "" && message.Mode != nil {
+		agent = strings.TrimSpace(*message.Mode)
 	}
 	reasoning := int64(0)
 	if message.Tokens.Reasoning != nil {
@@ -989,7 +989,6 @@ func parseKiroCLIFile(file string, mtimeMS int64, emit func(UnifiedEntry)) {
 	contents := map[string]*turnContent{}
 	promptChars := int64(0)
 	var promptTS int64
-	var lastMessageID string
 	forEachJSONLine(messagesPath, mtimeMS, func(raw []byte) {
 		var entry struct {
 			Kind string `json:"kind"`
@@ -1023,13 +1022,12 @@ func parseKiroCLIFile(file string, mtimeMS int64, emit func(UnifiedEntry)) {
 				promptTS = secondsToMS(*entry.Data.Meta.Timestamp)
 			}
 		case "AssistantMessage":
-			messageID := lastMessageID
-			if entry.Data.MessageID != nil && strings.TrimSpace(*entry.Data.MessageID) != "" {
-				messageID = strings.TrimSpace(*entry.Data.MessageID)
-			}
-			if messageID == "" {
+			// Upstream keys content strictly by the record's own message_id;
+			// a record without one is dropped, not attributed to a neighbor.
+			if entry.Data.MessageID == nil || strings.TrimSpace(*entry.Data.MessageID) == "" {
 				return
 			}
+			messageID := strings.TrimSpace(*entry.Data.MessageID)
 			bucket := contents[messageID]
 			if bucket == nil {
 				bucket = &turnContent{}
@@ -1041,9 +1039,6 @@ func parseKiroCLIFile(file string, mtimeMS int64, emit func(UnifiedEntry)) {
 			}
 			bucket.assistantChars += textChars
 			promptChars = 0
-		}
-		if entry.Data.MessageID != nil && strings.TrimSpace(*entry.Data.MessageID) != "" {
-			lastMessageID = strings.TrimSpace(*entry.Data.MessageID)
 		}
 	})
 	for index, turn := range turns {
@@ -1097,7 +1092,7 @@ func parseKiroCLIFile(file string, mtimeMS int64, emit func(UnifiedEntry)) {
 			requests = *turn.TotalRequestCount
 		}
 		emit(UnifiedEntry{
-			Client: "kiro", ModelID: model, ProviderID: "aws",
+			Client: "kiro", ModelID: model, ProviderID: "amazon-bedrock",
 			SessionID: session, WorkspaceKey: wsKey, WorkspaceLabel: wsLabel,
 			TimestampMS: timestamp, Tokens: TokenBreakdown{Input: input, Output: output},
 			MessageCount: int32(requests), IsTurnStart: true,
@@ -1143,7 +1138,6 @@ func parseKiroIDESession(file string, mtimeMS int64, emit func(UnifiedEntry)) {
 	if session.ModelID != nil && strings.TrimSpace(*session.ModelID) != "" {
 		model = strings.TrimSpace(*session.ModelID)
 	}
-	const defaultContextWindow = 200_000
 	type ideTurn struct {
 		promptChars    int64
 		assistantChars int64
@@ -1189,7 +1183,6 @@ func parseKiroIDESession(file string, mtimeMS int64, emit func(UnifiedEntry)) {
 		if input+output == 0 {
 			continue
 		}
-		_ = defaultContextWindow
 		timestamp := turn.promptTS
 		if timestamp == 0 {
 			timestamp = mtimeMS

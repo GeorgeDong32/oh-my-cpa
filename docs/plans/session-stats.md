@@ -433,8 +433,9 @@ the 口径 difference from the gateway dashboard.
   chat-artifact lane and the conversations_v2 SQLite lane are not. The IDE
   flat-format aggregation (role/content rows without a payload wrapper) and
   turn_end/contextUsage records are not ported — a flat file yields nothing.
-  Token counts are estimates from context-usage × context window and text
-  length, as upstream (Kiro writes no per-turn tokens).
+  Both lanes attribute to amazon-bedrock. Token counts are estimates from
+  context-usage × context window and text length, as upstream (Kiro writes
+  no per-turn tokens).
 - **copilot-vscode**: the row-log projection is ported with APPEND
   semantics for kind-0 and top-level kind-2 (upstream extend); the kind-1
   patch walker handles object keys and the requests index but does not
@@ -458,7 +459,8 @@ the 口径 difference from the gateway dashboard.
   inclusive-total split and usage field aliases; the LEGACY SQLite schema
   variant is not (legacy databases yield nothing from the db lane).
   resolveZcodeTimestamp clamps the back-anchor at zero instead of falling
-  back to completed_at when the duration overshoots.
+  back to completed_at when the duration overshoots. Both lanes attribute
+  to the zhipu provider.
 - **octofriend/synthetic**: the gateway re-attribution filter runs in the
   scan emit path for every client (upstream runs it in the aggregation
   pipeline); the octofriend ledger reads $XDG_DATA_HOME/octofriend/

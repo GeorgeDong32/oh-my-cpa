@@ -80,6 +80,18 @@ The MCP stdio bridge (`oh-my-cpa mcp`) reads `OMCPA_SERVER_URL`,
 `OMCPA_CPA_MANAGEMENT_KEY` and the optional `OMCPA_VERSION` only; the remote MCP
 endpoint has no setting of its own. See [Agent and MCP](#agent-and-mcp).
 
+## Local session statistics
+
+The Sessions page (Observability → Sessions) reads the coding agents' own
+local transcripts on the OMC host: file logs, IDE extension storages and
+SQLite databases, scanned read-only every 10 minutes (a manual rescan is
+available from the page). Nothing is uploaded and message content is never
+read — only usage counters and routing identity. Costs are estimates against
+the console's own price book at base rates; models the book does not know
+report as unpriced. Rows live and die with their source files: deleting an
+agent's session log removes its rows on the next scan. Client coverage and
+per-parser rules live in `docs/plans/session-stats.md`.
+
 ## Deployment constraints
 
 - **Single collector**: The CPA usage queue is destructive. Only one collector may read
