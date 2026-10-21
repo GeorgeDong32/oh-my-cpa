@@ -72,12 +72,17 @@ func TestParseCodexStateMachine(t *testing.T) {
 		t.Fatalf("entries: %+v", entries)
 	}
 	first, second := entries[0], entries[1]
-	// First event: last only — the resumed history (900 cached) is not imported.
-	if first.Tokens.Input != 100 || first.Tokens.Output != 10 || first.Tokens.CacheRead != 90 {
+	// First event: last only — the resumed history (900 cached) is not
+	// imported; buckets are additive, so total() == the snapshot's
+	// total_tokens (110), with cached split out of input.
+	if first.Tokens.Input != 10 || first.Tokens.Output != 10 || first.Tokens.CacheRead != 90 || first.Tokens.Reasoning != 0 {
 		t.Fatalf("first: %+v", first.Tokens)
 	}
+	if first.Tokens.Total() != 110 {
+		t.Fatalf("first additive total: %d", first.Tokens.Total())
+	}
 	// Second identical total is skipped; third takes its last increment.
-	if second.Tokens.Input != 50 || second.Tokens.Output != 5 || second.Tokens.CacheRead != 40 {
+	if second.Tokens.Input != 10 || second.Tokens.Output != 5 || second.Tokens.CacheRead != 40 {
 		t.Fatalf("second: %+v", second.Tokens)
 	}
 	if first.ModelID != "gpt-5.6" || second.ModelID != "gpt-5.6" {
@@ -101,6 +106,10 @@ func TestParseCodexTotalOnlyDelta(t *testing.T) {
 	}
 	if entries[1].Tokens.Input != 50 || entries[1].Tokens.Output != 10 {
 		t.Fatalf("total-only delta: %+v", entries[1].Tokens)
+	}
+	// Buckets stay additive: the delta 50/10 with no cached/reasoning.
+	if entries[1].Tokens.Total() != 60 {
+		t.Fatalf("total-only additive: %d", entries[1].Tokens.Total())
 	}
 }
 
@@ -174,7 +183,8 @@ func TestParseKimiLegacy(t *testing.T) {
 	}
 	var entries []UnifiedEntry
 	kimiParser{}.ParseFile(file, 9, func(entry UnifiedEntry) { entries = append(entries, entry) })
-	if len(entries) != 2 {
+	// The repeated message_id collapses to its latest snapshot (last-wins).
+	if len(entries) != 1 {
 		t.Fatalf("entries: %+v", entries)
 	}
 	entry := entries[0]
@@ -184,10 +194,10 @@ func TestParseKimiLegacy(t *testing.T) {
 	if entry.ModelID != "kimi-k2.5" || entry.SessionID != "s" {
 		t.Fatalf("identity: %+v", entry)
 	}
-	if entry.TimestampMS != 1768739497500 {
-		t.Fatalf("timestamp: %d", entry.TimestampMS)
+	if entry.TimestampMS != 1768739498500 {
+		t.Fatalf("timestamp (latest snapshot): %d", entry.TimestampMS)
 	}
-	if entries[0].DedupKey != entries[1].DedupKey {
-		t.Fatalf("message_id keys must match: %q vs %q", entries[0].DedupKey, entries[1].DedupKey)
+	if entry.DedupKey != "kimi:s:status:mu-1" {
+		t.Fatalf("dedup: %q", entry.DedupKey)
 	}
 }

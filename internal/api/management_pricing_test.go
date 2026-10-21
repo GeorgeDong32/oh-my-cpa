@@ -17,28 +17,28 @@ import (
 )
 
 type fakePricing struct {
-	listRows    []pricing.ModelPrice
-	unpriced    []string
-	suggestions []pricing.UpstreamModel
-	catalog     []pricing.UpstreamModel
-	channels    []pricing.ChannelMultiplier
-	state       pricing.SyncState
-	known       bool
-	running     bool
-	acceptSync  bool
-	changes     []pricing.ModeChange
-	changeErr   error
-	deleted     []string
-	channelSets []pricing.ChannelMultiplier
-	channelDels []string
-	started     bool
-	stateErr    error
-	notifyCount atomic.Int32
-	candidates  map[string]pricing.Candidate
-	dismissed   []string
-	backfilled    int64
+	listRows        []pricing.ModelPrice
+	unpriced        []string
+	suggestions     []pricing.UpstreamModel
+	catalog         []pricing.UpstreamModel
+	channels        []pricing.ChannelMultiplier
+	state           pricing.SyncState
+	known           bool
+	running         bool
+	acceptSync      bool
+	changes         []pricing.ModeChange
+	changeErr       error
+	deleted         []string
+	channelSets     []pricing.ChannelMultiplier
+	channelDels     []string
+	started         bool
+	stateErr        error
+	notifyCount     atomic.Int32
+	candidates      map[string]pricing.Candidate
+	dismissed       []string
+	backfilled      int64
 	backfillSkipped int64
-	backfillErr   error
+	backfillErr     error
 }
 
 func (f *fakePricing) ListPrices(context.Context) ([]pricing.ModelPrice, error) {

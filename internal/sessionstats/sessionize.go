@@ -41,23 +41,26 @@ func Sessionize(points []SessionPoint, idleGapMS int64) []ActivityBucket {
 	buckets := map[int64]*ActivityBucket{}
 	order := []int64{}
 	spans := [][2]int64{} // [start, end)
+	var previousEnd int64
 	for index, point := range points {
 		end := point.TimestampMS
 		if point.DurationMS > 0 {
 			end += point.DurationMS
 		}
-		if index > 0 && point.TimestampMS-points[index-1].TimestampMS > idleGapMS {
+		// The idle gap is measured from the previous block's end, not its
+		// start: a 20-minute response followed 5 idle minutes later is one
+		// continuing session (upstream sessionize reads span ends).
+		if index > 0 && point.TimestampMS-previousEnd > idleGapMS {
 			spans = append(spans, [2]int64{point.TimestampMS, end})
-			continue
-		}
-		if len(spans) == 0 {
+		} else if len(spans) == 0 {
 			spans = append(spans, [2]int64{point.TimestampMS, end})
-			continue
+		} else {
+			last := spans[len(spans)-1]
+			if end > last[1] {
+				spans[len(spans)-1] = [2]int64{last[0], end}
+			}
 		}
-		last := spans[len(spans)-1]
-		if end > last[1] {
-			spans[len(spans)-1] = [2]int64{last[0], end}
-		}
+		previousEnd = end
 	}
 	for _, point := range points {
 		bucket := point.TimestampMS / bucketMS * bucketMS

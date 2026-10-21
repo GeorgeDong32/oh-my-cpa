@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 
 	"github.com/klauspost/compress/zstd"
 )
@@ -55,6 +56,13 @@ func (u *zedUsage) breakdown() (TokenBreakdown, bool) {
 }
 
 type zedThreadJSON struct {
+	// Only Zed-hosted rows count: an external ACP agent is billed and logged
+	// by its own provider, and counting it here would double-book it.
+	Provider string `json:"provider"`
+	Model    *struct {
+		Provider string `json:"provider"`
+		Model    string `json:"model"`
+	} `json:"model"`
 	RequestTokenUsage    map[string]*zedUsage `json:"request_token_usage"`
 	CumulativeTokenUsage *zedUsage            `json:"cumulative_token_usage"`
 }
@@ -92,6 +100,13 @@ func (p zedParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEntry)
 		if json.Unmarshal(blob, &thread) != nil {
 			continue
 		}
+		if thread.Model != nil {
+			if !strings.EqualFold(strings.TrimSpace(thread.Model.Provider), "zed.dev") {
+				continue
+			}
+		} else if thread.Provider != "" && !strings.EqualFold(strings.TrimSpace(thread.Provider), "zed.dev") {
+			continue
+		}
 		// Per-request usage summed wins; the cumulative total is the fallback.
 		tokens, count := TokenBreakdown{}, int32(0)
 		for _, usage := range thread.RequestTokenUsage {
@@ -119,8 +134,12 @@ func (p zedParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEntry)
 				ts = parsed
 			}
 		}
+		model := "unknown"
+		if thread.Model != nil && strings.TrimSpace(thread.Model.Model) != "" {
+			model = strings.TrimSpace(thread.Model.Model)
+		}
 		emit(UnifiedEntry{
-			Client: p.Client(), ModelID: "unknown", ProviderID: "zed", SessionID: row.ID,
+			Client: p.Client(), ModelID: model, ProviderID: "zed", SessionID: row.ID,
 			TimestampMS: ts, Tokens: tokens, MessageCount: count,
 			DedupKey: "zed:" + row.ID + ":token_usage",
 		})

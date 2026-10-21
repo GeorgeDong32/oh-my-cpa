@@ -60,6 +60,33 @@ type droidTokens struct {
 	Thinking      *int64 `json:"thinkingTokens"`
 }
 
+// droidModelFromSibling scans the session's sibling .jsonl for the recorded
+// "Model:" marker when the settings file carries none (upstream caps at 500
+// lines for the same reason).
+func droidModelFromSibling(settingsFile string) string {
+	stem := strings.TrimSuffix(filepath.Base(settingsFile), ".settings.json")
+	sibling := filepath.Join(filepath.Dir(settingsFile), stem+".jsonl")
+	body, ok := readFileLimited(sibling, maxFileBytes)
+	if !ok {
+		return ""
+	}
+	for index, line := range strings.Split(string(body), "\n") {
+		if index >= 500 {
+			break
+		}
+		if pos := strings.Index(line, "Model:"); pos >= 0 {
+			value := line[pos+len("Model:"):]
+			if end := strings.IndexAny(value, "[\n"); end >= 0 {
+				value = value[:end]
+			}
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return ""
+}
+
 func (p droidParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEntry)) error {
 	body, ok := readFileLimited(file, maxFileBytes)
 	if !ok {
@@ -82,7 +109,10 @@ func (p droidParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEntr
 	session = strings.TrimSuffix(session, ".json")
 	model := ""
 	if settings.Model != nil {
-		model = strings.TrimSpace(*settings.Model)
+		model = strings.TrimSpace(strings.TrimPrefix(*settings.Model, "custom:"))
+	}
+	if model == "" {
+		model = droidModelFromSibling(file)
 	}
 	if model == "" {
 		model = "unknown"

@@ -275,6 +275,47 @@ func (r *Repository) ClientStatusRows(ctx context.Context) ([]sessionstats.Clien
 	return result, rows.Err()
 }
 
+// BucketSessionCounts counts distinct source sessions per 15-minute bucket
+// from the activity table (a session crossing midnight counts in both days).
+func (r *Repository) BucketSessionCounts(ctx context.Context, fromBucket int64) (map[int64]int64, error) {
+	rows, err := r.SQL().QueryContext(ctx, `SELECT bucket_15m, COUNT(*) FROM (
+	 SELECT DISTINCT bucket_15m, client, session_id FROM session_activity WHERE bucket_15m >= ?
+	) GROUP BY bucket_15m`, fromBucket)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := map[int64]int64{}
+	for rows.Next() {
+		var bucket, count int64
+		if err := rows.Scan(&bucket, &count); err != nil {
+			return nil, err
+		}
+		result[bucket] = count
+	}
+	return result, rows.Err()
+}
+
+// ClientSessionCounts counts distinct source sessions per client over the
+// whole stored history.
+func (r *Repository) ClientSessionCounts(ctx context.Context) (map[string]int64, error) {
+	rows, err := r.SQL().QueryContext(ctx, `SELECT client, COUNT(DISTINCT session_id) FROM session_activity GROUP BY client`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := map[string]int64{}
+	for rows.Next() {
+		var client string
+		var count int64
+		if err := rows.Scan(&client, &count); err != nil {
+			return nil, err
+		}
+		result[client] = count
+	}
+	return result, rows.Err()
+}
+
 func dedupKeyOrFallback(entry sessionstats.UnifiedEntry) string {
 	if entry.DedupKey != "" {
 		return entry.DedupKey

@@ -269,6 +269,7 @@ func (h *Handler) routes() chi.Router {
 				v1.Post("/pricing/models/{model}/backfill", h.backfillPricingModel)
 				v1.Get("/sessions/summary", h.getSessionsSummary)
 				v1.Get("/sessions/daily", h.getSessionsDaily)
+				v1.Get("/sessions/models", h.getSessionsModels)
 				v1.Get("/sessions/clients", h.getSessionsClients)
 				v1.Post("/sessions/rescan", h.triggerSessionsRescan)
 				v1.Put("/pricing/sync-schedule", h.updatePricingSyncSchedule)

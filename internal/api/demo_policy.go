@@ -162,6 +162,7 @@ var demoPolicy = []demoPolicyRule{
 	{http.MethodPost, "/api/v1/pricing/models/{model}/backfill", demoAllow, ""},
 	{http.MethodGet, "/api/v1/sessions/summary", demoAllow, ""},
 	{http.MethodGet, "/api/v1/sessions/daily", demoAllow, ""},
+	{http.MethodGet, "/api/v1/sessions/models", demoAllow, ""},
 	{http.MethodGet, "/api/v1/sessions/clients", demoAllow, ""},
 	{http.MethodPost, "/api/v1/sessions/rescan", demoRefuse, "local filesystem access"},
 	{http.MethodPut, "/api/v1/pricing/channels/{channel}", demoAllow, ""},

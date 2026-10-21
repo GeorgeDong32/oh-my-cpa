@@ -1245,6 +1245,10 @@ export const api = {
     return request<SessionsDaily>(`/sessions/daily?${new URLSearchParams({ days: String(days), tz })}`, { method: 'GET' });
   },
 
+  async getSessionsModels(days: number): Promise<{ models?: import('../types/sessions').SessionModelRow[] }> {
+    return request<{ models?: import('../types/sessions').SessionModelRow[] }>(`/sessions/models?${new URLSearchParams({ days: String(days) })}`, { method: 'GET' });
+  },
+
   async getSessionsClients(): Promise<SessionsClients> {
     return request<SessionsClients>('/sessions/clients', { method: 'GET' });
   },

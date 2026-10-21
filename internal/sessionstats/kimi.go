@@ -111,6 +111,10 @@ func (p kimiParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEntry
 	}
 	// Legacy sessions read the model from the sibling config.json.
 	legacyModel := readKimiConfigModel(file)
+	// A StatusUpdate repeats its message_id while a step streams (upstream
+	// push_or_replace); the latest snapshot for an id replaces earlier ones.
+	latestByID := map[string]UnifiedEntry{}
+	var legacyOrder []string
 	latestModel := ""
 	var pendingRequest *int64
 	index := 0
@@ -145,10 +149,14 @@ func (p kimiParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEntry
 				key = "kimi:" + session + ":status:" + itoa(index)
 				index++
 			}
-			emit(UnifiedEntry{
+			row := UnifiedEntry{
 				Client: p.Client(), ModelID: legacyModel, ProviderID: "moonshot",
 				SessionID: session, TimestampMS: ts, Tokens: tokens, DedupKey: key,
-			})
+			}
+			if _, seen := latestByID[key]; !seen {
+				legacyOrder = append(legacyOrder, key)
+			}
+			latestByID[key] = row
 			continue
 		}
 		// Kimi Code generation.
@@ -194,6 +202,9 @@ func (p kimiParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEntry
 			})
 			index++
 		}
+	}
+	for _, key := range legacyOrder {
+		emit(latestByID[key])
 	}
 	return nil
 }

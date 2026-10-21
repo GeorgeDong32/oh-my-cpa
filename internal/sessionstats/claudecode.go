@@ -87,6 +87,8 @@ func (p claudeParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEnt
 	// Sidechain files carry the parent session id on every entry; the stem's
 	// agent id names the subagent.
 	sidechainAgent := ""
+	toolResultKeys := map[string]struct{}{}
+	var toolResults []UnifiedEntry
 	dec := json.NewDecoder(strings.NewReader(string(body)))
 	seen := map[string]*claudeMerged{}
 	var order []string
@@ -107,6 +109,18 @@ func (p claudeParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEnt
 			} else if stem := sidechainAgentFromStem(file); stem != "" {
 				sidechainAgent = stem
 			}
+		}
+		if entry.Type == "user" && len(entry.ToolUseResult) > 0 {
+			// Explicit token metadata on a tool result counts; a char estimate
+			// would double-count what the next assistant turn's input already
+			// reports (upstream tokens#1011).
+			if entry := claudeToolResultEntry(p, file, mtimeMS, wsKey, wsLabel, sessionID, sidechainAgent, raw); entry != nil {
+				if _, seenKey := toolResultKeys[entry.DedupKey]; !seenKey {
+					toolResultKeys[entry.DedupKey] = struct{}{}
+					toolResults = append(toolResults, *entry)
+				}
+			}
+			continue
 		}
 		if entry.Type != "assistant" || entry.Message == nil {
 			continue
@@ -160,7 +174,93 @@ func (p claudeParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEnt
 	for _, key := range order {
 		emit(seen[key].entry)
 	}
+	for _, entry := range toolResults {
+		emit(entry)
+	}
 	return nil
+}
+
+// claudeToolResultEntry extracts one usage row from a user entry's
+// toolUseResult when the tool reported explicit token counts as structured
+// metadata (usage objects with total/input tokens). Plain text results and
+// char estimates never count.
+func claudeToolResultEntry(_ claudeParser, _ string, mtimeMS int64, wsKey, wsLabel, sessionID, agent string, raw []byte) *UnifiedEntry {
+	var probe struct {
+		Timestamp string          `json:"timestamp"`
+		Result    json.RawMessage `json:"toolUseResult"`
+	}
+	if json.Unmarshal(raw, &probe) != nil {
+		return nil
+	}
+	usage := findToolResultUsage(probe.Result)
+	if usage == nil || usage.Total == nil {
+		return nil
+	}
+	total := *usage.Total
+	if total <= 0 || usage.Input == nil {
+		return nil
+	}
+	ts := mtimeMS
+	if parsed, valid := ParseRFC3339MS(probe.Timestamp); valid {
+		ts = parsed
+	}
+	key := "claude:" + sessionID + ":tool_result:" + itoa(int(total)) + ":" + itoa(int(*usage.Input))
+	return &UnifiedEntry{
+		Client: "claude-code", ModelID: "unknown", ProviderID: "anthropic",
+		SessionID: sessionID, WorkspaceKey: wsKey, WorkspaceLabel: wsLabel,
+		TimestampMS: ts, Tokens: TokenBreakdown{Input: *usage.Input, Output: nonNeg(usage.Output)},
+		Agent: agent, DedupKey: key,
+	}
+}
+
+type toolResultUsageProbe struct {
+	Input  *int64 `json:"input_tokens"`
+	Output *int64 `json:"output_tokens"`
+	Total  *int64 `json:"total_tokens"`
+}
+
+// findToolResultUsage walks the result JSON for a usage-shaped object.
+func findToolResultUsage(raw json.RawMessage) *toolResultUsageProbe {
+	var generic any
+	if json.Unmarshal(raw, &generic) != nil {
+		return nil
+	}
+	var walk func(value any) *toolResultUsageProbe
+	walk = func(value any) *toolResultUsageProbe {
+		switch typed := value.(type) {
+		case map[string]any:
+			for key, child := range typed {
+				if key == "usage" {
+					if probe := decodeToolUsage(child); probe != nil {
+						return probe
+					}
+				}
+				if found := walk(child); found != nil {
+					return found
+				}
+			}
+		case []any:
+			for _, child := range typed {
+				if found := walk(child); found != nil {
+					return found
+				}
+			}
+		}
+		return nil
+	}
+	return walk(generic)
+}
+
+func decodeToolUsage(value any) *toolResultUsageProbe {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var probe toolResultUsageProbe
+	if json.Unmarshal(encoded, &probe) != nil {
+		return nil
+	}
+	return &probe
 }
 
 // claudeCacheWrite1h reads the 1-hour cache TTL share when the line carries

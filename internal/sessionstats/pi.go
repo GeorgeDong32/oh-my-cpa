@@ -77,6 +77,7 @@ func (p piParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEntry))
 	_, wsLabel := WorkspaceAfterMarker(file, "sessions", "")
 	var sessionID string
 	var wsKey, agent string
+	isSubagent := false
 	dec := json.NewDecoder(strings.NewReader(string(body)))
 	for dec.More() {
 		start := dec.InputOffset()
@@ -97,13 +98,16 @@ func (p piParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEntry))
 			}
 			sessionID = header.ID
 			wsKey = NormalizeWorkspaceKey(header.CWD)
+			isSubagent = header.RLMDepth != nil && *header.RLMDepth > 0
 			continue
 		}
 		if probe.Type == "session_info" {
 			var info piSessionEntry
-			if json.Unmarshal(raw, &info) == nil && info.Name != nil {
-				name := strings.TrimSpace(*info.Name)
-				if name != "" && !strings.HasPrefix(name, "subagent-") {
+			if json.Unmarshal(raw, &info) == nil && info.Name != nil && isSubagent {
+				// A subagent session names its worker; requester sessions keep
+				// the main thread's empty agent.
+				name := strings.TrimPrefix(strings.TrimSpace(*info.Name), "subagent-")
+				if name != "" {
 					agent = name
 				}
 			}

@@ -27,6 +27,8 @@ export interface SessionsSummary {
   active_days: number;
   sessions: number;
   today?: SessionDay;
+  biggest_day?: string;
+  weekday?: Record<string, number>;
   models?: SessionModelRow[];
 }
 
@@ -39,6 +41,7 @@ export interface SessionDay {
   reasoning: number;
   messages: number;
   sessions: number;
+  cost_usd: number;
 }
 
 export interface SessionsDaily {
@@ -54,6 +57,10 @@ export interface SessionClientRow {
   unreadable: number;
   oversized: number;
   last_scan_ms: number;
+}
+
+export interface SessionsModels {
+  models?: SessionModelRow[];
 }
 
 export interface SessionsClients {

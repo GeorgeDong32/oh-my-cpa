@@ -55,9 +55,17 @@ func walkNamedPrefixFiles(root, prefix string) ([]string, error) {
 type codexTokenUsage struct {
 	Input     *int64 `json:"input_tokens"`
 	Cached    *int64 `json:"cached_input_tokens"`
+	CacheRead *int64 `json:"cache_read_input_tokens"`
 	Output    *int64 `json:"output_tokens"`
 	Reasoning *int64 `json:"reasoning_output_tokens"`
 	Total     *int64 `json:"total_tokens"`
+}
+
+// cacheRead is the cached share under whichever alias the writer used; the
+// spellings vary across Codex versions and the larger wins (upstream
+// from_usage keeps the max).
+func (u *codexTokenUsage) cacheRead() int64 {
+	return maxInt64(nonNeg(u.Cached), nonNeg(u.CacheRead))
 }
 
 // codexTotals is the monotonicity view of a usage snapshot.
@@ -68,22 +76,28 @@ type codexTotals struct {
 func codexTotalsFrom(usage *codexTokenUsage) codexTotals {
 	return codexTotals{
 		input: nonNeg(usage.Input), output: nonNeg(usage.Output),
-		cached: nonNeg(usage.Cached), reasoning: nonNeg(usage.Reasoning),
+		cached: usage.cacheRead(), reasoning: nonNeg(usage.Reasoning),
 	}
 }
 
-func (t codexTotals) key(provider, model string) string {
-	return fmt.Sprintf("codex:token_count-total:%s:%s:%s:%d:%d:%d:%d",
-		"%s", provider, model, t.input, t.output, t.cached, t.reasoning)
-}
-
-// intoTokens maps the upstream snapshot to the console's buckets: cached is
-// cache read; upstream total_tokens counts input+output (reasoning inside
-// output), so no further arithmetic is needed.
+// intoTokens maps the snapshot onto the console's mutually exclusive buckets:
+// cached is a SUBSET of input_tokens and reasoning a SUBSET of
+// output_tokens (every snapshot satisfies total_tokens == input + output), so
+// the cached and reasoning shares are subtracted out to keep the buckets
+// additive — total() then equals the upstream total_tokens.
 func (u *codexTokenUsage) intoTokens() TokenBreakdown {
+	input, output := nonNeg(u.Input), nonNeg(u.Output)
+	cached := u.cacheRead()
+	if cached > input {
+		cached = input
+	}
+	reasoning := nonNeg(u.Reasoning)
+	if reasoning > output {
+		reasoning = output
+	}
 	return TokenBreakdown{
-		Input: nonNeg(u.Input), Output: nonNeg(u.Output),
-		CacheRead: nonNeg(u.Cached), Reasoning: nonNeg(u.Reasoning),
+		Input: input - cached, Output: output - reasoning,
+		CacheRead: cached, Reasoning: reasoning,
 	}
 }
 
@@ -111,8 +125,18 @@ func (t codexTotals) add(other codexTotals) codexTotals {
 }
 
 func (t codexTotals) intoTokens() TokenBreakdown {
-	return TokenBreakdown{Input: t.input, Output: t.output, CacheRead: t.cached, Reasoning: t.reasoning}
+	cached := t.cached
+	if cached > t.input {
+		cached = t.input
+	}
+	reasoning := t.reasoning
+	if reasoning > t.output {
+		reasoning = t.output
+	}
+	return TokenBreakdown{Input: t.input - cached, Output: t.output - reasoning, CacheRead: cached, Reasoning: reasoning}
 }
+
+func (t codexTotals) total() int64 { return t.input + t.output }
 
 // pendingMessage is a token-bearing record that arrived before any model was
 // known; it waits for the next model-bearing event or defaults to "unknown".
@@ -190,7 +214,6 @@ func (p codexParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEntr
 				payloadType = probe.Type
 			}
 		}
-		_ = payloadType
 		switch effectiveCodexType(entry.Type, payloadType) {
 		case "session_meta":
 			var payload codexSessionMetaPayload
@@ -219,6 +242,7 @@ func (p codexParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEntr
 			}
 		case "user_message":
 			pendingTurnStart = true
+			lastAcceptedTS = nil // a human turn starts a fresh request window
 		case "token_count":
 			var payload codexTokenCountPayload
 			if json.Unmarshal(entry.Payload, &payload) != nil || payload.Info == nil {
@@ -291,8 +315,12 @@ func (p codexParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEntr
 			previousTotals = nextTotals
 			parsedTS, hasTS := ParseRFC3339MS(entry.Timestamp)
 			ts := mtimeMS
+			var duration int64
 			if lastAcceptedTS != nil {
 				ts = *lastAcceptedTS
+				if hasTS && parsedTS > *lastAcceptedTS {
+					duration = parsedTS - *lastAcceptedTS
+				}
 			} else if hasTS {
 				ts = parsedTS
 			}
@@ -324,7 +352,7 @@ func (p codexParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEntr
 			message := UnifiedEntry{
 				Client: p.Client(), ModelID: model, ProviderID: resolvedProvider, SessionID: sessionID,
 				WorkspaceKey: wsKey, WorkspaceLabel: wsLabel, TimestampMS: ts, Tokens: tokens,
-				DedupKey: key, IsTurnStart: pendingTurnStart,
+				DurationMS: duration, DedupKey: key, IsTurnStart: pendingTurnStart,
 			}
 			pendingTurnStart = false
 			if model == "" {
@@ -350,16 +378,19 @@ func flushPending(pending *[]pendingMessage, model string, emit func(UnifiedEntr
 	*pending = nil
 }
 
-// staleRegression mirrors looks_like_stale_regression: totals that went
-// backwards while last is large relative to the gap are compaction rewrites,
-// not usage.
+// staleRegression mirrors looks_like_stale_regression: snapshots that arrive
+// slightly out of order (the total regresses by roughly one recent increment,
+// then resumes from the true watermark) are stale, not resets — 2% tolerance
+// or the current total covering the previous one within two last increments.
 func staleRegression(total, previous, last codexTotals) bool {
-	inputGap := previous.input - total.input
-	outputGap := previous.output - total.output
-	if inputGap <= 0 && outputGap <= 0 {
+	previousTotal := previous.input + previous.output
+	currentTotal := total.input + total.output
+	lastTotal := last.input + last.output
+	if previousTotal <= 0 || currentTotal <= 0 || lastTotal <= 0 {
 		return false
 	}
-	return last.input > inputGap || last.output > outputGap
+	return currentTotal*100 >= previousTotal*98 ||
+		currentTotal+lastTotal*2 >= previousTotal
 }
 
 func codexModelFrom(info *codexModelInfo, model, modelName string) string {

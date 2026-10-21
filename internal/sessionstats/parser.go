@@ -61,15 +61,6 @@ func walkFiles(root, suffix string) ([]string, error) {
 	return files, nil
 }
 
-func sortStrings(values []string) {
-	// small n; insertion sort avoids importing sort for one call site family
-	for i := 1; i < len(values); i++ {
-		for j := i; j > 0 && values[j] < values[j-1]; j-- {
-			values[j], values[j-1] = values[j-1], values[j]
-		}
-	}
-}
-
 // FileMtimeMS is the last-modified fallback timestamp parsers use when an
 // entry carries none; 0 when unreadable.
 func FileMtimeMS(file string) int64 {

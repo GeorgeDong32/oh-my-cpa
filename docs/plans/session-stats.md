@@ -1,6 +1,6 @@
 # Local session statistics
 
-Status: Stage 0 — revision 3 after two spec-review rounds (no medium+ findings remain)
+Status: Batch 1 delivered (10 clients, live-verified); Batch 2/3 pending.
 Source of truth for the session-stats feature. Decisions here are final unless
 the review overturns them; later batches update this document, never a side
 conversation.
@@ -99,18 +99,22 @@ type UnifiedEntry struct {
   `:tool_result:` marker and are **session-scoped, not globally stable** —
   they die with their file. Sidechain entries re-attribute to the parent
   session id and a resolved subagent name. `<synthetic>` placeholder models
-  suppressed; tool_result usage only from explicit metadata (char estimates
-  double-count); workflow journals skipped; headless JSON variant; cc-mirror
-  variants get their own client id.
+  suppressed; tool_result usage only from explicit structured metadata (char
+  estimates double-count); workflow journals skipped; headless JSON variant;
+  cc-mirror variants get their own client id.
+  *Ported in Batch 1:* the assistant path, streaming max-merge, sidechain
+  re-attribution (stem/agent-id names), synthetic suppression, tool_result
+  structured-metadata extraction, journal skip. *Not ported:* headless JSON
+  variant, cc-mirror variants, parent-file subagent name resolution — the
+  local corpus carries none of them.
 - **codex** (`codex.rs`): the incremental usage source is `last_token_usage`;
-  `total_token_usage` drives the dedup key and the monotonicity check. The
-  state machine includes defensive branches the port must keep: a
-  `total`-only event after a known baseline deltas the total (legacy writers),
-  a `last`-only event reuses `previous + last` as its baseline, and the first
-  event of a session takes `last` (a resumed session must not import its
-  history). The model priority chain is `model_info.slug` → `model` →
-  `model_name` → `info.model/model_name`, carried through a pending-model
-  state machine; `session_meta` carries provider, not model.
+  `total_token_usage` drives the dedup key and the monotonicity check, with
+  the stale-snapshot tolerance (2% or two-last coverage). The state machine
+  keeps every upstream arm, including the defensive total-only delta and the
+  first-event-takes-last rule; cached is split out of input and reasoning out
+  of output so the buckets stay additive (`total() == total_tokens`). Model
+  priority `model_info.slug → model → model_name`; timestamps anchor at the
+  request window and durations span to the response.
 - **pi** (`pi.rs`): requester vs subagent sessions separate on
   `session_info.name` (`subagent-` prefix) and the `rlmDepth` lineage;
   **omp** separates on directory shape.
@@ -192,18 +196,22 @@ session_activity(bucket_15m, client, session_id, ws_key, active_ms, messages,
     each file's row replacement + watermark advance + dirty marking is one
     transaction, so an interrupted scan resumes at a file boundary and is
     idempotent.
-  - A file is re-parsed when mtime or size changed. Byte-offset incremental
-    parsing applies only when the previous read ended on a line boundary and
-    the consumed prefix hash still matches (upstream `message_cache` guard);
-    otherwise the file is re-parsed whole. Truncation (size < offset) resets
-    to a full re-parse.
+  - A file is re-parsed when mtime or size changed, or when the parser's
+    version stamp (stored in the watermark's prefix_hash) differs — a parser
+    fix re-parses unchanged files, the upstream message-cache invalidation
+    rule. Byte-offset incremental parsing is not implemented in Batch 1: the
+    watermark records the consumed size and a full re-parse happens on any
+    change (documented simplification; the guard columns exist for a later
+    incremental reader). Truncation (size < offset) resets to a full re-parse.
   - An unreadable file (I/O error, malformed) is retried with capped backoff
     and marked `unreadable` in scan status; it never fails the scan or the
     loop. Per-file size cap 512 MiB (upstream caps zed blobs at 32 MiB);
-    oversized files are marked `oversized`, skipped and reported.
-  - Roots resolve from `$HOME` (configurable per client via environment for
-    container deployments; paths are stored as seen — moving a root is a
-    re-scan, documented in operations).
+    oversized files are marked `oversized`, skipped and reported. A panicking
+    parser is recovered per client and marked, never taking the process down.
+  - Roots resolve from `$HOME`. Per-client environment overrides and
+    container root remapping are **not implemented in Batch 1** (single-user
+    local deployment is the only current shape); paths are stored as seen —
+    moving a root is a re-scan, documented in operations.
 
 ## 5. Cost estimation (read time)
 
@@ -320,3 +328,19 @@ the 口径 difference from the gateway dashboard.
 - Cross-file per-field-max completeness merging beyond the SQL `MAX` rollup
   (§4) — the SQL merge covers stable keys; tool_result session-scoped keys
   never merge across files by design.
+
+## 12. Recorded deviations (Batch 1 review)
+
+- **amp**: the ledger/message reconciliation matcher is simplified to
+  ledger-first, unmatched message records counted — the upstream's
+  to_message_id pairing (which merges durations) is not ported; token totals
+  match, durations may be coarser.
+- **claudecode**: parent-file subagent name resolution, headless JSON and
+  cc-mirror variants are not ported (absent from the local corpus).
+- **codex**: the OpenClaw re-attribution and headless JSONL variant are not
+  ported; the fork-scoped dedup key covers the double-count they guard
+  against upstream.
+- **byte-offset incremental parsing**: full re-parse on change (§4 note).
+- The sessions page ships the tokens.ci information architecture minus the
+  per-request log and the contribution heatmap styling; weekday bars and
+  biggest-day replace the heatmap until a later batch wants it.

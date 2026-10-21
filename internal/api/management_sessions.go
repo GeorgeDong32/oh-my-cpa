@@ -24,6 +24,9 @@ import (
 type SessionStatsReader interface {
 	SummaryRows(ctx context.Context, fromBucket int64) ([]sessionstats.AggregatedRow, error)
 	ClientStatusRows(ctx context.Context) ([]sessionstats.ClientStatusRow, error)
+	// BucketSessionCounts counts distinct source sessions per 15-minute
+	// bucket from the activity table — the exact day/window session numbers.
+	BucketSessionCounts(ctx context.Context, fromBucket int64) (map[int64]int64, error)
 }
 
 // SessionStatsScanner triggers the background scan loop.
@@ -104,14 +107,15 @@ func foldDaily(rows []sessionstats.AggregatedRow, zone *time.Location) map[strin
 }
 
 type sessionDayDTO struct {
-	Date       string `json:"date"`
-	Input      int64  `json:"input"`
-	Output     int64  `json:"output"`
-	CacheRead  int64  `json:"cache_read"`
-	CacheWrite int64  `json:"cache_write"`
-	Reasoning  int64  `json:"reasoning"`
-	Messages   int64  `json:"messages"`
-	Sessions   int64  `json:"sessions"`
+	Date       string  `json:"date"`
+	Input      int64   `json:"input"`
+	Output     int64   `json:"output"`
+	CacheRead  int64   `json:"cache_read"`
+	CacheWrite int64   `json:"cache_write"`
+	Reasoning  int64   `json:"reasoning"`
+	Messages   int64   `json:"messages"`
+	Sessions   int64   `json:"sessions"`
+	CostUSD    float64 `json:"cost_usd"`
 }
 
 type sessionTokenMixDTO struct {
@@ -123,12 +127,12 @@ type sessionTokenMixDTO struct {
 }
 
 type sessionModelRowDTO struct {
-	Model     string  `json:"model"`
-	Clients   string  `json:"clients"`
-	Tokens    int64   `json:"tokens"`
-	Share     float64 `json:"share"`
-	CostUSD   float64 `json:"cost_usd"`
-	Priced    bool    `json:"priced"`
+	Model   string  `json:"model"`
+	Clients string  `json:"clients"`
+	Tokens  int64   `json:"tokens"`
+	Share   float64 `json:"share"`
+	CostUSD float64 `json:"cost_usd"`
+	Priced  bool    `json:"priced"`
 }
 
 type sessionClientRowDTO struct {
@@ -143,15 +147,17 @@ type sessionClientRowDTO struct {
 }
 
 type sessionsSummaryDTO struct {
-	Window      sessionTokenMixDTO `json:"tokens"`
-	TotalTokens int64              `json:"total_tokens"`
-	CostUSD     float64            `json:"cost_usd"`
-	CostSource  string             `json:"cost_source"`
-	UnpricedTokens int64           `json:"unpriced_tokens"`
-	ActiveDays  int64              `json:"active_days"`
-	Sessions    int64              `json:"sessions"`
-	Today       *sessionDayDTO     `json:"today,omitempty"`
-	Models      []sessionModelRowDTO `json:"models"`
+	Window         sessionTokenMixDTO   `json:"tokens"`
+	TotalTokens    int64                `json:"total_tokens"`
+	CostUSD        float64              `json:"cost_usd"`
+	CostSource     string               `json:"cost_source"`
+	UnpricedTokens int64                `json:"unpriced_tokens"`
+	ActiveDays     int64                `json:"active_days"`
+	Sessions       int64                `json:"sessions"`
+	Today          *sessionDayDTO       `json:"today,omitempty"`
+	BiggestDay     string               `json:"biggest_day,omitempty"`
+	Weekday        map[string]int64     `json:"weekday,omitempty"`
+	Models         []sessionModelRowDTO `json:"models"`
 }
 
 type sessionsDailyDTO struct {
@@ -170,10 +176,13 @@ func (h *Handler) sessionsReader(writer http.ResponseWriter, request *http.Reque
 	return h.repo, true
 }
 
-// estimateSessionCost prices a token mix against the current book: base
-// rates only, no tiers, no channel multiplier (spec §5). Unpriced models
-// contribute to the unpriced share instead of $0.
-func estimateSessionCost(rows []sessionstats.AggregatedRow, prices []pricing.ModelPrice) (cost float64, unpriced int64) {
+// estimateSessionCost prices the rows against the current book through the
+// same Quote the gateway uses: base rates, the model multiplier, uncached
+// prompt / cache-read / cache-write / completion buckets (spec §5 — no
+// tiers, no channel multiplier). Unpriced models add to the unpriced share
+// instead of $0. The console's exclusive buckets recombine into
+// pricing.Tokens' cache-inclusive Input before quoting.
+func estimateSessionCost(rows []sessionstats.AggregatedRow, prices []pricing.ModelPrice) (costNanos int64, unpriced int64) {
 	book := map[string]pricing.ModelPrice{}
 	for _, price := range prices {
 		book[price.Model] = price
@@ -188,13 +197,19 @@ func estimateSessionCost(rows []sessionstats.AggregatedRow, prices []pricing.Mod
 			unpriced += tokens
 			continue
 		}
-		// pricing.Tokens counts Input inclusive of cache; the console's
-		// buckets are exclusive, so recombine before dividing by 1M.
-		input := row.Input + row.CacheRead + row.CacheWrite
-		cost += float64(input) / 1e6 * price.PromptPricePer1M
-		cost += float64(row.Output+row.Reasoning) / 1e6 * price.CompletionPer1M
+		breakdown, err := pricing.Quote(price, 1.0, pricing.Tokens{
+			Input:      row.Input + row.CacheRead + row.CacheWrite,
+			Output:     row.Output + row.Reasoning,
+			CacheRead:  row.CacheRead,
+			CacheWrite: row.CacheWrite,
+		}, row.Bucket15MS, "")
+		if err != nil {
+			unpriced += tokens
+			continue
+		}
+		costNanos += breakdown.TotalNanos
 	}
-	return cost, unpriced
+	return costNanos, unpriced
 }
 
 func (h *Handler) getSessionsSummary(writer http.ResponseWriter, request *http.Request) {
@@ -226,71 +241,82 @@ func (h *Handler) getSessionsSummary(writer http.ResponseWriter, request *http.R
 	}
 	summary := sessionsSummaryDTO{CostSource: "estimated"}
 	var totals sessionsTotals
-	modelTotals := map[string]*int64{}
-	_ = modelTotals
 	activeDays := map[string]struct{}{}
-	// Per-model aggregation for the table.
+	weekday := map[string]int64{}
+	dayTotals := map[string]int64{}
 	type modelKey struct{ model, client string }
 	models := map[modelKey]*sessionsTotals{}
+	modelRows := map[modelKey][]sessionstats.AggregatedRow{}
 	for _, row := range rows {
 		totals.add(row)
-		activeDays[dayKey(row.Bucket15MS, zone)] = struct{}{}
+		rowTotal := row.Input + row.Output + row.CacheRead + row.CacheWrite + row.Reasoning
+		date := dayKey(row.Bucket15MS, zone)
+		activeDays[date] = struct{}{}
+		dayTotals[date] += rowTotal
+		weekday[time.UnixMilli(row.Bucket15MS).In(zone).Format("Mon")] += rowTotal
 		key := modelKey{model: row.Model, client: row.Client}
 		if models[key] == nil {
 			models[key] = &sessionsTotals{}
 		}
 		models[key].add(row)
+		modelRows[key] = append(modelRows[key], row)
 	}
 	summary.Window = sessionTokenMixDTO(totals)
 	summary.TotalTokens = totals.total()
 	summary.ActiveDays = int64(len(activeDays))
-	summary.CostUSD, summary.UnpricedTokens = estimateSessionCost(rows, prices)
-	// Model table sorted by tokens.
+	summary.Weekday = weekday
+	costNanos, unpriced := estimateSessionCost(rows, prices)
+	summary.CostUSD = float64(costNanos) / 1e9
+	summary.UnpricedTokens = unpriced
 	for key, modelTotals := range models {
-		row := sessionModelRowDTO{
-			Model: key.model, Clients: key.client, Tokens: modelTotals.total(),
-		}
+		row := sessionModelRowDTO{Model: key.model, Clients: key.client, Tokens: modelTotals.total()}
 		row.Share = shareOf(row.Tokens, summary.TotalTokens)
+		if nanos, _ := estimateSessionCost(modelRows[key], prices); nanos > 0 {
+			row.CostUSD = float64(nanos) / 1e9
+			row.Priced = true
+		}
 		summary.Models = append(summary.Models, row)
 	}
 	sortSessionModels(summary.Models)
+	biggest, biggestTotal := "", int64(0)
+	for date, total := range dayTotals {
+		if total > biggestTotal {
+			biggest, biggestTotal = date, total
+		}
+	}
+	summary.BiggestDay = biggest
+	sessionCounts, _ := reader.BucketSessionCounts(request.Context(), fromBucket)
+	perDaySessions := foldSessionCounts(sessionCounts, zone)
 	today := time.Now().In(zone).Format("2006-01-02")
-	dayMap := foldDaily(rows, zone)
-	if day := dayMap[today]; day != nil {
-		day.Sessions = approximateDaySessions(rows, zone, today)
+	if day := foldDaily(rows, zone)[today]; day != nil {
+		day.Sessions = perDaySessions[today]
+		if nanos, _ := estimateSessionCost(rowsForDay(rows, zone, today), prices); nanos > 0 {
+			day.CostUSD = float64(nanos) / 1e9
+		}
 		summary.Today = day
 	}
 	summary.Sessions = distinctWindowSessions(request.Context(), h, zone, days)
 	writeJSON(writer, http.StatusOK, summary)
 }
 
-func approximateDaySessions(rows []sessionstats.AggregatedRow, zone *time.Location, date string) int64 {
-	// Distinct (client, model) groups on the day; an upper bound when a
-	// session serves two models (the activity table holds the exact count).
-	groups := map[string]struct{}{}
+func rowsForDay(rows []sessionstats.AggregatedRow, zone *time.Location, date string) []sessionstats.AggregatedRow {
+	var filtered []sessionstats.AggregatedRow
 	for _, row := range rows {
-		if dayKey(row.Bucket15MS, zone) == date && row.Sessions > 0 {
-			groups[row.Client+"\x00"+row.Model] = struct{}{}
+		if dayKey(row.Bucket15MS, zone) == date {
+			filtered = append(filtered, row)
 		}
 	}
-	return int64(len(groups))
+	return filtered
 }
 
-// distinctWindowSessions counts exact source sessions from the activity
-// table over the window.
-func distinctWindowSessions(ctx context.Context, h *Handler, zone *time.Location, days int) int64 {
-	if h.repo == nil {
-		return 0
+// foldSessionCounts folds per-bucket distinct session counts into local days.
+// A session crossing midnight counts in each civil day it touched (spec §4).
+func foldSessionCounts(counts map[int64]int64, zone *time.Location) map[string]int64 {
+	days := map[string]int64{}
+	for bucket, count := range counts {
+		days[dayKey(bucket, zone)] += count
 	}
-	from := time.Now().In(zone).AddDate(0, 0, -(days - 1))
-	fromBucket := sessionstats.Bucket15MS(from.UnixMilli())
-	row := h.repo.SQL().QueryRowContext(ctx, `SELECT COUNT(DISTINCT client || ':' || session_id)
-	 FROM session_activity WHERE bucket_15m >= ?`, fromBucket)
-	var count int64
-	if row.Scan(&count) != nil {
-		return 0
-	}
-	return count
+	return days
 }
 
 func (h *Handler) getSessionsDaily(writer http.ResponseWriter, request *http.Request) {
@@ -314,14 +340,72 @@ func (h *Handler) getSessionsDaily(writer http.ResponseWriter, request *http.Req
 		writeInternalError(writer, err)
 		return
 	}
+	sessionCounts, err := reader.BucketSessionCounts(request.Context(), fromBucket)
+	if err != nil {
+		writeInternalError(writer, err)
+		return
+	}
+	perDaySessions := foldSessionCounts(sessionCounts, zone)
 	response := sessionsDailyDTO{}
-	dayMap := foldDaily(rows, zone)
-	for date, day := range dayMap {
+	for date, day := range foldDaily(rows, zone) {
 		day.Date = date
-		day.Sessions = approximateDaySessions(rows, zone, date)
+		day.Sessions = perDaySessions[date]
 		response.Days = append(response.Days, *day)
 	}
 	sortSessionDays(response.Days)
+	writeJSON(writer, http.StatusOK, response)
+}
+
+// getSessionsModels is the model table's own read: per-model tokens, share
+// and estimated cost across the window.
+func (h *Handler) getSessionsModels(writer http.ResponseWriter, request *http.Request) {
+	reader, ok := h.sessionsReader(writer, request)
+	if !ok {
+		return
+	}
+	days, daysErr := sessionsDays(request)
+	if daysErr != "" {
+		writeError(writer, http.StatusBadRequest, daysErr)
+		return
+	}
+	fromBucket := sessionstats.Bucket15MS(time.Now().AddDate(0, 0, -days).UnixMilli())
+	rows, err := reader.SummaryRows(request.Context(), fromBucket)
+	if err != nil {
+		writeInternalError(writer, err)
+		return
+	}
+	var prices []pricing.ModelPrice
+	if h.pricing != nil {
+		if book, err := h.pricing.ListPrices(request.Context()); err == nil {
+			prices = book
+		}
+	}
+	type modelKey struct{ model, client string }
+	models := map[modelKey]*sessionsTotals{}
+	modelRows := map[modelKey][]sessionstats.AggregatedRow{}
+	var total int64
+	for _, row := range rows {
+		total += row.Input + row.Output + row.CacheRead + row.CacheWrite + row.Reasoning
+		key := modelKey{model: row.Model, client: row.Client}
+		if models[key] == nil {
+			models[key] = &sessionsTotals{}
+		}
+		models[key].add(row)
+		modelRows[key] = append(modelRows[key], row)
+	}
+	response := struct {
+		Models []sessionModelRowDTO `json:"models"`
+	}{}
+	for key, modelTotals := range models {
+		row := sessionModelRowDTO{Model: key.model, Clients: key.client, Tokens: modelTotals.total()}
+		row.Share = shareOf(row.Tokens, total)
+		if nanos, _ := estimateSessionCost(modelRows[key], prices); nanos > 0 {
+			row.CostUSD = float64(nanos) / 1e9
+			row.Priced = true
+		}
+		response.Models = append(response.Models, row)
+	}
+	sortSessionModels(response.Models)
 	writeJSON(writer, http.StatusOK, response)
 }
 
@@ -335,11 +419,29 @@ func (h *Handler) getSessionsClients(writer http.ResponseWriter, request *http.R
 		writeInternalError(writer, err)
 		return
 	}
+	// Token and session totals come from the whole stored history, not a
+	// window: the cards describe the client's coverage, the tiles the window.
+	rows, err := reader.SummaryRows(request.Context(), 0)
+	if err != nil {
+		writeInternalError(writer, err)
+		return
+	}
+	clientTokens := map[string]int64{}
+	for _, row := range rows {
+		clientTokens[row.Client] += row.Input + row.Output + row.CacheRead + row.CacheWrite + row.Reasoning
+	}
+	clientSessions, err := h.repo.ClientSessionCounts(request.Context())
+	if err != nil {
+		writeInternalError(writer, err)
+		return
+	}
 	response := sessionsClientsDTO{}
 	for _, status := range statuses {
 		response.Clients = append(response.Clients, sessionClientRowDTO{
-			Client: status.Client, Entries: status.Entries, Files: status.Files,
-			Unreadable: status.Unreadable, Oversized: status.Oversized, LastScanMS: status.LastScanMS,
+			Client: status.Client, Tokens: clientTokens[status.Client],
+			Sessions: clientSessions[status.Client], Entries: status.Entries,
+			Files: status.Files, Unreadable: status.Unreadable, Oversized: status.Oversized,
+			LastScanMS: status.LastScanMS,
 		})
 	}
 	writeJSON(writer, http.StatusOK, response)
@@ -363,6 +465,21 @@ func (h *Handler) triggerSessionsRescan(writer http.ResponseWriter, request *htt
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, map[string]any{"started": true})
+}
+
+func distinctWindowSessions(ctx context.Context, h *Handler, zone *time.Location, days int) int64 {
+	if h.repo == nil {
+		return 0
+	}
+	from := time.Now().In(zone).AddDate(0, 0, -(days - 1))
+	fromBucket := sessionstats.Bucket15MS(from.UnixMilli())
+	row := h.repo.SQL().QueryRowContext(ctx, `SELECT COUNT(DISTINCT client || ':' || session_id)
+	 FROM session_activity WHERE bucket_15m >= ?`, fromBucket)
+	var count int64
+	if row.Scan(&count) != nil {
+		return 0
+	}
+	return count
 }
 
 func sortSessionModels(rows []sessionModelRowDTO) {

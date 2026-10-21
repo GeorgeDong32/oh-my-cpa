@@ -120,7 +120,7 @@ func (p geminiParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEnt
 			input, cached := subtractCachedOverlap(nonNeg(tokens.Input), nonNeg(tokens.Cached))
 			breakdown := TokenBreakdown{
 				Input: input, Output: nonNeg(tokens.Output), CacheRead: cached,
-				Reasoning: nonNeg(tokens.Thoughts) + nonNeg(tokens.Tool),
+				Reasoning: nonNeg(tokens.Thoughts),
 			}
 			if breakdown.Total() == 0 {
 				continue
@@ -183,7 +183,7 @@ func parseGeminiHeadless(body []byte, fallbackSession string, mtimeMS int64, emi
 		input, cached := subtractCachedOverlap(nonNeg(tokens.Input), nonNeg(tokens.Cached))
 		breakdown := TokenBreakdown{
 			Input: input, Output: nonNeg(tokens.Output), CacheRead: cached,
-			Reasoning: nonNeg(tokens.Thoughts) + nonNeg(tokens.Tool),
+			Reasoning: nonNeg(tokens.Thoughts),
 		}
 		if model == "" || breakdown.Total() == 0 {
 			continue

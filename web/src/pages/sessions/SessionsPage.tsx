@@ -16,6 +16,10 @@ const SESSIONS_QUERY_KEYS = {
   all: ['sessions'] as const,
 };
 
+// The API keys weekdays in the viewer locale's abbreviated English form; the
+// bars render in the console language with a stable order.
+const WEEKDAY_ORDER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
 function formatUsd(value: number): string {
   return `$${value.toFixed(2)}`;
 }
@@ -140,6 +144,7 @@ export const SessionsPage: React.FC = () => {
               <div className="sessions-tile-caption">
                 <span>{t('sessions.mix.output')} {fmtTokens(data.today.output)}</span>
                 <span>{t('sessions.messages')} {data.today.messages}</span>
+                {data.today.cost_usd > 0 && <span>{t('sessions.cost')} {formatUsd(data.today.cost_usd)}</span>}
               </div>
             </div>
           )}
@@ -159,6 +164,25 @@ export const SessionsPage: React.FC = () => {
             })}
           </div>
           <div className="sessions-tile-caption">{t('sessions.horizon')}</div>
+          {data?.biggest_day && (
+            <div className="sessions-tile-caption">{t('sessions.biggest_day', { day: data.biggest_day })}</div>
+          )}
+        </section>
+      )}
+      {data?.weekday && Object.keys(data.weekday).length > 0 && (
+        <section className="sessions-section">
+          <h2>{t('sessions.weekday')}</h2>
+          <div className="sessions-daily sessions-weekday">
+            {WEEKDAY_ORDER.map((en) => {
+              const value = data.weekday?.[en] ?? 0;
+              const max = Math.max(1, ...Object.values(data.weekday ?? {}));
+              return (
+                <div key={en} className="sessions-day" title={`${t(`sessions.weekday.${en}`)} · ${fmtTokens(value)}`}>
+                  <div className="sessions-day-bar" style={{ height: `${Math.max(4, (value / max) * 100)}%` }} />
+                </div>
+              );
+            })}
+          </div>
         </section>
       )}
       {data?.models && data.models.length > 0 && (
@@ -193,12 +217,15 @@ export const SessionsPage: React.FC = () => {
             {clients.data.clients.map((client) => (
               <div key={client.client} className="sessions-client" data-testid={`sessions-client-${client.client}`}>
                 <div className="sessions-client-name">{client.client}</div>
+                <div className="sessions-tile-value is-sub">{fmtTokens(client.tokens)}</div>
                 <div className="sessions-tile-caption">
+                  <span>{t('sessions.sessions')} {client.sessions}</span>
                   <span>{t('sessions.client.files')} {client.files}</span>
                   <span>{t('sessions.client.entries')} {client.entries}</span>
                   {client.unreadable > 0 && <span>{t('sessions.client.unreadable')} {client.unreadable}</span>}
                   {client.oversized > 0 && <span>{t('sessions.client.oversized')} {client.oversized}</span>}
                 </div>
+                {client.last_scan_ms > 0 && <div className="sessions-tile-caption">{t('sessions.client.last_scan')} {new Date(client.last_scan_ms).toLocaleString()}</div>}
               </div>
             ))}
           </div>

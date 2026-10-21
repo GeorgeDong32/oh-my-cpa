@@ -61,7 +61,13 @@ var opencodeQueries = []string{
 	 WHERE json_extract(m.data, '$.role') = 'assistant' AND json_extract(m.data, '$.tokens') IS NOT NULL ORDER BY m.id`,
 }
 
+type opencodeTime struct {
+	Created   *float64 `json:"created"`
+	Completed *float64 `json:"completed"`
+}
+
 type opencodeData struct {
+	Time  *opencodeTime `json:"time"`
 	Model *struct {
 		ProviderID string `json:"providerID"`
 		ID         string `json:"id"`
@@ -135,10 +141,17 @@ func (p opencodeParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedE
 			provider = data.Model.ProviderID
 		}
 		wsKey := NormalizeWorkspaceKey(row.Workspace)
+		ts, duration := mtimeMS, int64(0)
+		if data.Time != nil && data.Time.Created != nil && *data.Time.Created > 0 {
+			ts = int64(*data.Time.Created)
+			if data.Time.Completed != nil && *data.Time.Completed > *data.Time.Created {
+				duration = int64(*data.Time.Completed - *data.Time.Created)
+			}
+		}
 		emit(UnifiedEntry{
 			Client: p.Client(), ModelID: model, ProviderID: provider, SessionID: row.SessionID,
 			WorkspaceKey: wsKey, WorkspaceLabel: WorkspaceLabelFromKey(wsKey),
-			TimestampMS: mtimeMS, Tokens: tokens,
+			TimestampMS: ts, Tokens: tokens, DurationMS: duration,
 			// Row ids are stable upstream identities; the read-time merge keeps
 			// one row per key across table variants.
 			DedupKey: "opencode:" + row.SessionID + ":" + row.ID,

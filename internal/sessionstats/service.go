@@ -186,18 +186,20 @@ func (s *Service) scanClient(ctx context.Context, parser Parser) {
 		}
 	}()
 	client := parser.Client()
+	watermarks, err := s.store.ListFileWatermarks(ctx, client)
+	if err != nil {
+		s.logger.Warn("session scan state unreadable", "client", client, "error", err)
+		return
+	}
+	// Seen spans every root, so a root whose directory vanished still drops
+	// its files' rows (spec: rows follow the source files).
+	seen := map[string]struct{}{}
 	for _, root := range parser.Roots(s.home) {
 		files, err := parser.Discover(root)
 		if err != nil {
 			s.logger.Warn("session scan discovery failed", "client", client, "error", err)
 			continue
 		}
-		watermarks, err := s.store.ListFileWatermarks(ctx, client)
-		if err != nil {
-			s.logger.Warn("session scan state unreadable", "client", client, "error", err)
-			return
-		}
-		seen := map[string]struct{}{}
 		for _, file := range files {
 			seen[file] = struct{}{}
 			info, statErr := statFile(file)
@@ -216,13 +218,31 @@ func (s *Service) scanClient(ctx context.Context, parser Parser) {
 				})
 				continue
 			}
-			var entries []UnifiedEntry
+			// In-file duplicates (streaming repeats) merge here per-field max,
+			// making unique (client, path, dedup_key) rows a framework
+			// guarantee whatever a parser emits.
+			byKey := map[string]*UnifiedEntry{}
+			var order []string
 			parseErr := parser.ParseFile(file, info.mtimeMS, func(entry UnifiedEntry) {
 				if entry.MessageCount == 0 {
 					entry.MessageCount = 1
 				}
-				entries = append(entries, entry)
+				if existing, ok := byKey[entry.DedupKey]; ok {
+					existing.Tokens.Input = maxInt64(existing.Tokens.Input, entry.Tokens.Input)
+					existing.Tokens.Output = maxInt64(existing.Tokens.Output, entry.Tokens.Output)
+					existing.Tokens.CacheRead = maxInt64(existing.Tokens.CacheRead, entry.Tokens.CacheRead)
+					existing.Tokens.CacheWrite = maxInt64(existing.Tokens.CacheWrite, entry.Tokens.CacheWrite)
+					existing.Tokens.Reasoning = maxInt64(existing.Tokens.Reasoning, entry.Tokens.Reasoning)
+					return
+				}
+				captured := entry
+				byKey[entry.DedupKey] = &captured
+				order = append(order, entry.DedupKey)
 			})
+			var entries []UnifiedEntry
+			for _, key := range order {
+				entries = append(entries, *byKey[key])
+			}
 			watermark := FileWatermark{
 				Client: client, Path: file, MtimeMS: info.mtimeMS, SizeBytes: info.size,
 				ByteOffset: info.size, EntryRows: int64(len(entries)), PrefixHash: version,
@@ -238,13 +258,11 @@ func (s *Service) scanClient(ctx context.Context, parser Parser) {
 				s.logger.Warn("session scan write failed", "client", client, "file", file, "error", err)
 			}
 		}
-		for path := range watermarks {
-			if _, ok := seen[path]; !ok {
-				if touched, err := s.store.DropFile(ctx, client, path); err == nil {
-					_ = touched
-				} else {
-					s.logger.Warn("session scan drop failed", "client", client, "file", path, "error", err)
-				}
+	}
+	for path := range watermarks {
+		if _, ok := seen[path]; !ok {
+			if _, err := s.store.DropFile(ctx, client, path); err != nil {
+				s.logger.Warn("session scan drop failed", "client", client, "file", path, "error", err)
 			}
 		}
 	}
