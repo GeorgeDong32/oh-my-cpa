@@ -39,6 +39,7 @@ type PricingManager interface {
 	DeleteChannel(ctx context.Context, channel string) (bool, error)
 	DeleteChannelChecked(context.Context, string, func([]pricing.ChannelMultiplier) error) (bool, error)
 	TriggerSync() bool
+	BackfillUsage(ctx context.Context, model string) (backfilled int64, skipped int64, err error)
 	NotifyModelsChanged()
 	IsRunning() bool
 	SetAutoSyncInterval(ctx context.Context, hours int64) error
@@ -707,6 +708,34 @@ func (h *Handler) startPricingSync(writer http.ResponseWriter, request *http.Req
 		return
 	}
 	writeJSON(writer, http.StatusAccepted, map[string]any{"started": true})
+}
+
+// backfillPricingModel fills the cost of a model's stored unpriced requests
+// from the price versions effective at each request's own timestamp. The
+// operation is operator-directed and audited; rows already carrying a cost are
+// never touched, and rows still without an effective version are reported as
+// skipped rather than guessed.
+func (h *Handler) backfillPricingModel(writer http.ResponseWriter, request *http.Request) {
+	if !h.requirePricing(writer) {
+		return
+	}
+	model, ok := pricingPathParam(request, "model")
+	if !ok {
+		writeError(writer, http.StatusBadRequest, "model path parameter is required")
+		return
+	}
+	backfilled, skipped, err := h.pricing.BackfillUsage(request.Context(), model)
+	if err != nil {
+		pricingErrorResponse(writer, err)
+		return
+	}
+	if err := h.recordAudit(request, "pricing.usage.backfill", "pricing", model, "success", map[string]any{
+		"backfilled": backfilled, "skipped": skipped,
+	}); err != nil {
+		writeInternalError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"backfilled": backfilled, "skipped": skipped})
 }
 
 // pricingScheduleRequest is the auto-sync interval update payload.

@@ -263,6 +263,7 @@ func (h *Handler) routes() chi.Router {
 				v1.Put("/pricing/channels/{channel}", h.updatePricingChannel)
 				v1.Delete("/pricing/channels/{channel}", h.deletePricingChannel)
 				v1.Post("/pricing/sync", h.startPricingSync)
+				v1.Post("/pricing/models/{model}/backfill", h.backfillPricingModel)
 				v1.Put("/pricing/sync-schedule", h.updatePricingSyncSchedule)
 				v1.Get("/usage/events", h.listUsageEvents)
 				v1.Get("/usage/events/{id}", h.getUsageEvent)

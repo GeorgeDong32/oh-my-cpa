@@ -36,6 +36,9 @@ type fakePricing struct {
 	notifyCount atomic.Int32
 	candidates  map[string]pricing.Candidate
 	dismissed   []string
+	backfilled    int64
+	backfillSkipped int64
+	backfillErr   error
 }
 
 func (f *fakePricing) ListPrices(context.Context) ([]pricing.ModelPrice, error) {
@@ -152,6 +155,9 @@ func (f *fakePricing) DeleteChannelChecked(_ context.Context, channel string, ch
 func (f *fakePricing) TriggerSync() bool {
 	f.started = true
 	return f.acceptSync
+}
+func (f *fakePricing) BackfillUsage(ctx context.Context, model string) (backfilled int64, skipped int64, err error) {
+	return f.backfilled, f.backfillSkipped, f.backfillErr
 }
 func (f *fakePricing) NotifyModelsChanged() {
 	f.notifyCount.Add(1)
