@@ -33,8 +33,11 @@ const (
 	PreferenceTpsCalculationMode = "omc_tps_calculation_mode"
 	PreferenceModelView          = "omc_models_view"
 	PreferenceRequestModelIcons  = "omc_request_model_icons"
-	PreferenceTheme              = "omc_theme"
-	PreferenceScrollSmoothing    = "omc_scroll_smoothing"
+	// PreferenceDashRateUnit is the dashboard rate tile's unit, tokens per
+	// minute or per second. Same display-settings group as the token style.
+	PreferenceDashRateUnit    = "omc_dash_rate_unit"
+	PreferenceTheme           = "omc_theme"
+	PreferenceScrollSmoothing = "omc_scroll_smoothing"
 
 	// PreferenceNavHidden is the console rail entries the operator has hidden, as an
 	// array of route keys. Storing the hidden set rather than the visible one is what
