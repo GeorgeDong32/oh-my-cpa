@@ -46,7 +46,11 @@ parser that rides with Copilot CLI's deferral). Classes:
 | 1 (present on this machine; live-verified) | claudecode, codex, pi, qwen, kimi, gemini, opencode, amp, droid (Factory), zed | A ×8, B ×2 |
 | 2 (golden fixtures from upstream formats) | cherrystudio, omp, openclaw, crush, goose, junie, fx, grok, lmstudio, codebuff, codebuddy, dsh, mux, tencent_buddy, commandcode, freebuff, gjc, jcode, kimchi, mcode, reasonix, senpi, craft_agent, opencodereview, augment | A ×20, B ×5 |
 | 3 | cline, roocode, kilocode, copilot_vscode (C); kilo, kiro, hermes, micode, unsloth, workbuddy, zcode (B); synthetic (re-attribution filter) | C ×4, B ×7, filter |
-| deferred (D) | cursor, warp, trae, antigravity, antigravity_cli, devin, hindsight, prime_agent, copilot (CLI; its otel files exist only if tokens' own exporter sidecar ran — a data-availability gap, not an account API one; copilot_desktop rides with it) | — |
+| deferred (D) | cursor, warp, trae, antigravity, antigravity_cli, aider, devin, hindsight, prime_agent, copilot (CLI; its otel files exist only if tokens' own exporter sidecar ran — a data-availability gap, not an account API one; copilot_desktop rides with it) | — |
+
+  aider is recorded per the goal's D-class list; upstream tokens has no
+  aider parser either, so there is nothing to port — revisit only if
+  upstream adds one.
 
 Per-client paths and field maps live with the parser code (ported from the
 Rust source, cited by file); this table is the ownership map, not a path copy.
@@ -321,7 +325,9 @@ the 口径 difference from the gateway dashboard.
 
 ## 11. Out of scope (recorded, not done)
 
-- D-class account-API clients (§2) — revisit after Batch 3.
+- D-class account-API clients (§2 — cursor, warp, trae, antigravity×2, aider,
+  devin, hindsight, prime_agent, copilot CLI/desktop) — revisit after
+  Batch 3.
 - Cross-machine aggregation — each instance reports its own machine.
 - Per-message drill-down or content viewer — usage fields only.
 - Importing tokens' own cache files — coupling to another tool's cache is

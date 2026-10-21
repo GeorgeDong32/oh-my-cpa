@@ -99,6 +99,13 @@ const FIXED_ROUTES = new Map([
   ['/api/v1/usage/events', 'usage-events'],
   ['/api/v1/usage/live', 'usage-live'],
   ['/api/v1/usage/routing', 'usage-routing'],
+  // The sessions page's reads. The page always asks with its default window
+  // (days=30 + the deployment timezone), which is the exact capture the
+  // export wrote, so a fixed mapping answers every read the demo performs.
+  ['/api/v1/sessions/summary', 'sessions-summary'],
+  ['/api/v1/sessions/daily', 'sessions-daily'],
+  ['/api/v1/sessions/models', 'sessions-models'],
+  ['/api/v1/sessions/clients', 'sessions-clients'],
   // The session endpoint sits under `/api/auth`, NOT under `/api/v1`: the console
   // builds it from its own auth root. Getting this wrong left every page on the login
   // card, because the console never learns it is signed in and renders the sign-in
