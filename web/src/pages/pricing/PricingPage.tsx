@@ -359,7 +359,7 @@ export const PricingPage: React.FC = () => {
           <div className={styles['mode-cell']}>
             <Tooltip title={mode === 'unpriced' ? t('pricing.unpriced_note') : undefined}>
             <StatusLabel tone={MODE_TONES[mode]}>
-              {row.rowKind === 'priced' && row.source === 'modelsdev' ? t('pricing.mode.legacy') : t(`pricing.mode.${mode}`)}
+              {t(`pricing.mode.${mode}`)}
             </StatusLabel>
             </Tooltip>
             {row.rowKind === 'priced' && (mode === 'auto' && row.match_kind && row.match_kind !== 'exact' || row.price_multiplier !== 1) && (

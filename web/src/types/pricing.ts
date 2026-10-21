@@ -5,7 +5,7 @@
  * here ever reprices recorded traffic.
  */
 
-/** Who last wrote a price. `modelsdev` survives only on rows written before OpenRouter became the source. */
+/** Who last wrote a price. `modelsdev` marks a row the models.dev fallback priced because OpenRouter listed nothing for the model, plus rows written before OpenRouter became the source. */
 export type PricingSource = 'manual' | 'openrouter' | 'modelsdev';
 
 /** How a model is priced: matched automatically, pinned to one OpenRouter model, or set by hand. */
