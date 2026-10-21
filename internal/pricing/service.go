@@ -79,12 +79,14 @@ type Store interface {
 
 // SyncResult summarizes one sync run for logs, API and audit. Pruned counts
 // automatic rows retired because their model left the current CPA catalog;
-// custom rows are never pruned.
+// custom rows are never pruned. FallbackMatched counts rows the models.dev
+// fallback priced because OpenRouter listed nothing for the model.
 type SyncResult struct {
-	Matched   int64
-	Unmatched int64
-	Updated   int64
-	Pruned    int64
+	Matched         int64
+	Unmatched       int64
+	Updated         int64
+	Pruned          int64
+	FallbackMatched int64
 }
 
 // catalogCacheTTL lets catalog-only reconciliation reuse a recent download: a
@@ -98,6 +100,7 @@ type Service struct {
 	priceWrites           sync.Mutex
 	store                 Store
 	fetcher               Fetcher
+	fallback              Fetcher
 	modelLister           ModelLister
 	logger                *slog.Logger
 	interval              time.Duration
@@ -116,6 +119,9 @@ type Service struct {
 	catalogMu     sync.Mutex
 	cachedCatalog *Catalog
 	cachedAt      time.Time
+
+	cachedFallback    *Catalog
+	cachedFallbackAt  time.Time
 }
 
 func NewService(store Store, fetcher Fetcher, logger *slog.Logger) *Service {
@@ -143,6 +149,17 @@ func (s *Service) SetModelLister(lister ModelLister) {
 	}
 	s.mu.Lock()
 	s.modelLister = lister
+	s.mu.Unlock()
+}
+
+// SetFallbackFetcher connects the models.dev fallback source. Without it the
+// service behaves as before: OpenRouter is the only automatic source.
+func (s *Service) SetFallbackFetcher(fallback Fetcher) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.fallback = fallback
 	s.mu.Unlock()
 }
 
@@ -456,10 +473,18 @@ func (s *Service) syncOnce(ctx context.Context, refreshPrices bool) (result Sync
 			return result, err
 		}
 	}
+	// The fallback is consulted only when the primary resolves nothing for a
+	// model that could still get a row, so models.dev is fetched at most when
+	// it can change one — and catalog-only reconciliations reuse the in-memory
+	// copy instead of paying a fetch.
+	var fallback Catalog
+	if len(catalog.Models) > 0 && s.needsFallback(ctx, models, catalog, refreshPrices) {
+		fallback, _ = s.fallbackCatalog(ctx, refreshPrices)
+	}
 	// Prices and links are re-read under the write lock, so a link an operator set
 	// while the catalog was downloading is honoured rather than overwritten.
 	s.priceWrites.Lock()
-	result, err = s.reconcilePrices(ctx, models, catalog, refreshPrices, pruned)
+	result, err = s.reconcilePrices(ctx, models, catalog, fallback, refreshPrices, pruned)
 	s.priceWrites.Unlock()
 	if err != nil {
 		return result, err
@@ -473,8 +498,79 @@ func (s *Service) syncOnce(ctx context.Context, refreshPrices bool) (result Sync
 	return result, err
 }
 
+// needsFallback reports whether the reconcile pass will reach a model the
+// primary catalog cannot resolve, so models.dev is fetched only when it can
+// change a row. It mirrors the reconcile skip rules; reconcile stays
+// authoritative.
+func (s *Service) needsFallback(ctx context.Context, models map[string]string, catalog Catalog, refreshPrices bool) bool {
+	if s == nil || s.fallback == nil {
+		return false
+	}
+	existing, err := s.store.ListModelPrices(ctx)
+	if err != nil {
+		return false
+	}
+	prices := make(map[string]ModelPrice, len(existing))
+	for _, p := range existing {
+		prices[p.Model] = p
+	}
+	links, err := s.store.ListModelLinks(ctx)
+	if err != nil {
+		return false
+	}
+	for model, target := range models {
+		previous, hasPrice := prices[model]
+		if hasPrice && (previous.Source == SourceManual || !refreshPrices) {
+			continue
+		}
+		if hasPrice && previous.Source != SourceModelsDev {
+			// A known OpenRouter rate survives a temporary omission; the
+			// fallback fills gaps, it does not replace.
+			continue
+		}
+		if links[model] != "" || target == "" {
+			continue
+		}
+		if _, ok := catalog.MatchModel(target); !ok {
+			return true
+		}
+	}
+	return false
+}
+
+// fallbackCatalog returns the models.dev first-party catalog: the in-memory
+// download while it is fresh, else — when the sync may use the network — a
+// fresh fetch. It is never persisted: the stored upstream snapshot remains the
+// OpenRouter list the console's picker reads.
+func (s *Service) fallbackCatalog(ctx context.Context, allowFetch bool) (Catalog, bool) {
+	if s == nil || s.fallback == nil {
+		return Catalog{}, false
+	}
+	s.catalogMu.Lock()
+	if s.cachedFallback != nil && s.clock().Sub(s.cachedFallbackAt) < catalogCacheTTL {
+		catalog := *s.cachedFallback
+		s.catalogMu.Unlock()
+		return catalog, true
+	}
+	s.catalogMu.Unlock()
+	if !allowFetch {
+		return Catalog{}, false
+	}
+	catalog, err := s.fallback.Fetch(ctx)
+	if err != nil {
+		// The fallback is opportunistic: a fetch failure prices nothing new
+		// and must not fail a sync whose primary source succeeded.
+		s.logger.Warn("models.dev fallback catalog unavailable", "error", err)
+		return Catalog{}, false
+	}
+	s.catalogMu.Lock()
+	s.cachedFallback, s.cachedFallbackAt = &catalog, s.clock()
+	s.catalogMu.Unlock()
+	return catalog, true
+}
+
 // reconcilePrices runs with priceWrites held.
-func (s *Service) reconcilePrices(ctx context.Context, models map[string]string, catalog Catalog, refreshPrices bool, pruned int64) (SyncResult, error) {
+func (s *Service) reconcilePrices(ctx context.Context, models map[string]string, catalog Catalog, fallback Catalog, refreshPrices bool, pruned int64) (SyncResult, error) {
 	result := SyncResult{Pruned: pruned}
 	existing, err := s.store.ListModelPrices(ctx)
 	if err != nil {
@@ -501,7 +597,22 @@ func (s *Service) reconcilePrices(ctx context.Context, models map[string]string,
 			result.Matched++
 			continue
 		}
+		multiplier := 1.0
+		if hasPrice && previous.PriceMultiplier > 0 {
+			multiplier = previous.PriceMultiplier
+		}
 		upstream, kind, found := resolveUpstream(catalog, model, models[model], links[model])
+		if !found && links[model] == "" && (!hasPrice || previous.Source == SourceModelsDev) {
+			// OpenRouter prices nothing for this model and nothing forbids the
+			// fallback: an unpriced model, or one the fallback itself priced
+			// and can now refresh. A pin is never reinterpreted.
+			if match, ok := matchFallback(fallback, models[model]); ok {
+				rows = append(rows, match.Model.priceFor(SourceModelsDev, model, match.Kind, multiplier, syncedAt))
+				result.Matched++
+				result.FallbackMatched++
+				continue
+			}
+		}
 		if !found {
 			// A temporary omission upstream is not an instruction to erase a known rate.
 			if hasPrice {
@@ -510,10 +621,6 @@ func (s *Service) reconcilePrices(ctx context.Context, models map[string]string,
 				result.Unmatched++
 			}
 			continue
-		}
-		multiplier := 1.0
-		if hasPrice && previous.PriceMultiplier > 0 {
-			multiplier = previous.PriceMultiplier
 		}
 		rows = append(rows, upstream.PriceFor(model, kind, multiplier, syncedAt))
 		result.Matched++

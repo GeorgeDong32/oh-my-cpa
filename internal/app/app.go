@@ -156,6 +156,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 	// then daily, and custom rows and operator pins always win. Failures degrade
 	// to stale prices, never to wrong ones.
 	pricingService := pricing.NewService(repo, pricing.NewOpenRouterClient(), logger)
+	pricingService.SetFallbackFetcher(pricing.NewModelsDevClient())
 	pricingService.SetModelLister(&cpaModelLister{repo: repo, cipher: cipher, cfg: cfg})
 	handler.SetPricing(pricingService)
 
