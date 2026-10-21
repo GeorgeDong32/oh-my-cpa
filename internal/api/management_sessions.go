@@ -300,7 +300,7 @@ func (h *Handler) getSessionsSummary(writer http.ResponseWriter, request *http.R
 		}
 		summary.Today = day
 	}
-	summary.Sessions = distinctWindowSessions(request.Context(), h, zone, days)
+	summary.Sessions = distinctWindowSessions(request.Context(), h, days)
 	writeJSON(writer, http.StatusOK, summary)
 }
 
@@ -472,7 +472,7 @@ func (h *Handler) triggerSessionsRescan(writer http.ResponseWriter, request *htt
 	writeJSON(writer, http.StatusAccepted, map[string]any{"started": true})
 }
 
-func distinctWindowSessions(ctx context.Context, h *Handler, zone *time.Location, days int) int64 {
+func distinctWindowSessions(ctx context.Context, h *Handler, days int) int64 {
 	if h.repo == nil {
 		return 0
 	}

@@ -53,3 +53,41 @@ func TestEstimateSessionCostMatchesQuotePath(t *testing.T) {
 		t.Fatalf("unpriced handling: cost %d unpriced %d", costNanos2, unpriced2)
 	}
 }
+
+// A tiered price row must not leak its long-context rate onto a whole
+// 15-minute aggregate: tiers are per-request assertions an aggregate cannot
+// decide (spec §5), so the estimate always quotes the base rates.
+func TestEstimateSessionCostIgnoresTiers(t *testing.T) {
+	highPrompt, highCompletion := 100.0, 400.0
+	tiered := pricing.ModelPrice{
+		Model: "glm-5.3", PromptPricePer1M: 1.0, CompletionPer1M: 4.0,
+		CacheReadPer1M: 0.1, CacheWritePer1M: 1.0, PriceMultiplier: 1, Source: pricing.SourceManual,
+		Tiers: []pricing.PriceTier{{MinPromptTokens: 100_000, PromptPricePer1M: &highPrompt, CompletionPer1M: &highCompletion}},
+	}
+	// 1.8M cache-inclusive input: the threshold tier fires on a plain Quote.
+	row := sessionstats.AggregatedRow{
+		Bucket15MS: 1_700_000_000_000, Client: "pi", Model: "glm-5.3",
+		Input: 900_000, Output: 200_000, CacheRead: 800_000, CacheWrite: 100_000, Reasoning: 50_000,
+	}
+	tokens := pricing.Tokens{
+		Input:  row.Input + row.CacheRead + row.CacheWrite,
+		Output: row.Output + row.Reasoning, CacheRead: row.CacheRead, CacheWrite: row.CacheWrite,
+	}
+	withTiers, err := pricing.Quote(tiered, 1.0, tokens, row.Bucket15MS, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := tiered
+	base.Tiers = nil
+	baseOnly, err := pricing.Quote(base, 1.0, tokens, row.Bucket15MS, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withTiers.TotalNanos == baseOnly.TotalNanos {
+		t.Fatal("fixture must actually fire the tier for this test to guard anything")
+	}
+	costNanos, _ := estimateSessionCost([]sessionstats.AggregatedRow{row}, []pricing.ModelPrice{tiered})
+	if costNanos != baseOnly.TotalNanos {
+		t.Fatalf("estimate %d != base-rate quote %d (tier leaked)", costNanos, baseOnly.TotalNanos)
+	}
+}

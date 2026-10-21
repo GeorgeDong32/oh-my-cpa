@@ -27,9 +27,9 @@ func collect(parse func(string, int64, func(UnifiedEntry))) []UnifiedEntry {
 	return entries
 }
 
-// Qwen: assistant lines with usageMetadata; cache-inclusive prompt counts
-// stay as reported (the upstream keeps promptTokenCount as-is and reports
-// cachedContentTokenCount separately — additive buckets).
+// Qwen: assistant lines with usageMetadata; the cache-inclusive
+// promptTokenCount splits its cached share out so the buckets stay mutually
+// exclusive and additive (same as gemini).
 func TestParseQwen(t *testing.T) {
 	body := `{"type":"user","message":{}}
 {"type":"assistant","model":"qwen3-max","timestamp":"2026-01-10T15:40:45.212Z","sessionId":"s-1","usageMetadata":{"promptTokenCount":100,"candidatesTokenCount":50,"thoughtsTokenCount":10,"cachedContentTokenCount":20}}

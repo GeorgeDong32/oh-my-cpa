@@ -569,7 +569,7 @@
     "sessions-clients": {
       "status": 200,
       "content_type": "application/json; charset=utf-8",
-      "body": "{\"clients\":[{\"client\":\"claude-code\",\"entries\":47,\"files\":10,\"last_scan_ms\":1792611532267,\"oversized\":0,\"sessions\":10,\"tokens\":125534,\"unreadable\":0},{\"client\":\"codex\",\"entries\":61,\"files\":10,\"last_scan_ms\":1792611532267,\"oversized\":0,\"sessions\":10,\"tokens\":168338,\"unreadable\":0},{\"client\":\"pi\",\"entries\":52,\"files\":10,\"last_scan_ms\":1792611532268,\"oversized\":0,\"sessions\":10,\"tokens\":138210,\"unreadable\":0}]}"
+      "body": "{\"clients\":[{\"client\":\"claude-code\",\"entries\":47,\"files\":10,\"last_scan_ms\":1792612765427,\"oversized\":0,\"sessions\":10,\"tokens\":125534,\"unreadable\":0},{\"client\":\"codex\",\"entries\":61,\"files\":10,\"last_scan_ms\":1792612765427,\"oversized\":0,\"sessions\":10,\"tokens\":168338,\"unreadable\":0},{\"client\":\"pi\",\"entries\":52,\"files\":10,\"last_scan_ms\":1792612765428,\"oversized\":0,\"sessions\":10,\"tokens\":138210,\"unreadable\":0}]}"
     },
     "sessions-daily": {
       "status": 200,
