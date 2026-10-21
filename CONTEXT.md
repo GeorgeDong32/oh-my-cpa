@@ -92,7 +92,7 @@ Oh My CPA adds a user-owned identity and organization layer above CLIProxyAPI (C
   search, or authorization logic. Historical records written before this
   contract may still contain the earlier `/24` or `/64` network mask; that data
   cannot be recovered and is never synthetically expanded.
-- **Unpriced Usage**: A request for which no valid price version existed at request time. It remains usage-only, is excluded from cost totals, and is never backfilled when a price is added later. Historical rows without a stored snapshot are `legacy_unpriced`.
+- **Unpriced Usage**: A request for which no valid price version existed at request time. It remains usage-only and is excluded from cost totals. Historical rows without a stored snapshot are `legacy_unpriced`. An operator may backfill such rows for a priced model (ADR 0104): the recorded rate is applied at each request's own timestamp, the rows land in the terminal `backfilled` status, and the fill is audited; costs locked at ingestion are never touched.
 - **Update State**: The System Information page's answer about one product, and one of
   four values rather than a boolean: `update_available`, `up_to_date`, `update_ahead`
   (the build is newer than any release - ahead of publication, not an update to
