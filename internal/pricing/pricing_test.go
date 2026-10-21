@@ -14,26 +14,26 @@ import (
 // fakeStore mirrors the repository's write guards: an automatic write never
 // replaces a custom row, and never replaces a row pinned to another model.
 type fakeStore struct {
-	mu            sync.Mutex
-	prices        []ModelPrice
-	channelPrices []ModelPrice
-	providers     []CatalogProvider
-	upserted      []ModelPrice
-	applied       []ModelPrice
-	deleted       []string
-	saved         []SyncState
-	models        map[string]string
-	links         map[string]string
-	upstream      []UpstreamModel
-	channels      map[string]ChannelMultiplier
-	state         SyncState
-	stateKnown    bool
-	reviews       map[string]string
+	mu                 sync.Mutex
+	prices             []ModelPrice
+	channelPrices      []ModelPrice
+	providers          []CatalogProvider
+	upserted           []ModelPrice
+	applied            []ModelPrice
+	deleted            []string
+	saved              []SyncState
+	models             map[string]string
+	links              map[string]string
+	upstream           []UpstreamModel
+	channels           map[string]ChannelMultiplier
+	state              SyncState
+	stateKnown         bool
+	reviews            map[string]string
 	backfillModel      string
 	backfillPriceModel string
-	backfilled    int64
-	backfillSkipped int64
-	backfillErr   error
+	backfilled         int64
+	backfillSkipped    int64
+	backfillErr        error
 }
 
 func newFakeStore(models ...string) *fakeStore {
