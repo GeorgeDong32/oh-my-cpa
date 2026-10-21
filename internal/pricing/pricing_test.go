@@ -29,7 +29,8 @@ type fakeStore struct {
 	state         SyncState
 	stateKnown    bool
 	reviews       map[string]string
-	backfillModel string
+	backfillModel      string
+	backfillPriceModel string
 	backfilled    int64
 	backfillSkipped int64
 	backfillErr   error

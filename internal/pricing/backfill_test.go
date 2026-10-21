@@ -6,8 +6,9 @@ import (
 	"testing"
 )
 
-func (f *fakeStore) BackfillUsagePricing(ctx context.Context, model string) (backfilled int64, skipped int64, err error) {
+func (f *fakeStore) BackfillUsagePricing(ctx context.Context, model, priceModel string) (backfilled int64, skipped int64, err error) {
 	f.backfillModel = model
+	f.backfillPriceModel = priceModel
 	return f.backfilled, f.backfillSkipped, f.backfillErr
 }
 
@@ -21,20 +22,28 @@ func TestBackfillUsageRequiresPricedModel(t *testing.T) {
 	service := NewService(store, &fakeFetcher{catalog: loadFixtureCatalog(t)}, nil)
 	service.SetFallbackFetcher(&fakeFetcher{catalog: fallbackTestCatalog(t)})
 
-	if _, _, err := service.BackfillUsage(context.Background(), ""); !errors.Is(err, ErrModelUnpriced) {
+	if _, _, err := service.BackfillUsage(context.Background(), "", ""); !errors.Is(err, ErrModelUnpriced) {
 		t.Fatalf("empty model: %v", err)
 	}
-	if _, _, err := service.BackfillUsage(context.Background(), "unpriced-model"); !errors.Is(err, ErrModelUnpriced) {
+	if _, _, err := service.BackfillUsage(context.Background(), "unpriced-model", ""); !errors.Is(err, ErrModelUnpriced) {
 		t.Fatalf("unpriced model must be refused: %v", err)
 	}
-	backfilled, skipped, err := service.BackfillUsage(context.Background(), "  minimax-m3.1-flash  ")
+	backfilled, skipped, err := service.BackfillUsage(context.Background(), "  minimax-m3.1-flash  ", "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if backfilled != 7 || skipped != 2 {
 		t.Fatalf("unexpected counts: %d/%d", backfilled, skipped)
 	}
-	if store.backfillModel != "minimax-m3.1-flash" {
-		t.Fatalf("model not trimmed: %q", store.backfillModel)
+	if store.backfillModel != "minimax-m3.1-flash" || store.backfillPriceModel != "minimax-m3.1-flash" {
+		t.Fatalf("names not resolved: %q / %q", store.backfillModel, store.backfillPriceModel)
+	}
+	// A retired name can be priced from another book row the operator asserts
+	// prices the same model.
+	if _, _, err := service.BackfillUsage(context.Background(), "old-bare-name", "minimax-m3.1-flash"); err != nil {
+		t.Fatal(err)
+	}
+	if store.backfillModel != "old-bare-name" || store.backfillPriceModel != "minimax-m3.1-flash" {
+		t.Fatalf("cross-name backfill lost the names: %q / %q", store.backfillModel, store.backfillPriceModel)
 	}
 }

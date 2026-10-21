@@ -391,11 +391,13 @@ Price history rejects corrupt tier snapshots rather than presenting them as base
   amount is authoritative; `recomputed_matches` flags any disagreement.
 - **Manual backfill fills stored unpriced history on the operator's word**
   (ADR 0104): a priced model's `unpriced` and `legacy_unpriced` rows can be
-  priced from the model's current version, evaluated at each request's own
-  timestamp with the channel multiplier effective per request. The rows land
-  in the terminal `backfilled` status, the fill is audited, rows carrying a
-  cost are never touched, and the derived usage facts are cleared so the
-  rollups re-fold. Nothing backfills automatically.
+  priced from the model's current version — or from another book row the
+  operator names, for a retired name priced in the book under its current
+  routing name — evaluated at each request's own timestamp with the channel
+  multiplier effective per request. The rows land in the terminal
+  `backfilled` status, the fill is audited, rows carrying a cost are never
+  touched, and the derived usage facts are cleared so the rollups re-fold.
+  Nothing backfills automatically.
 - **Demo mode runs no sync.** The OpenRouter snapshot, the prices, one pin, one
   channel multiplier and the sync bookkeeping are fixture data seeded by
   `internal/demo`; the snapshot is a trimmed copy of the real list

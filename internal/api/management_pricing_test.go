@@ -156,7 +156,7 @@ func (f *fakePricing) TriggerSync() bool {
 	f.started = true
 	return f.acceptSync
 }
-func (f *fakePricing) BackfillUsage(ctx context.Context, model string) (backfilled int64, skipped int64, err error) {
+func (f *fakePricing) BackfillUsage(ctx context.Context, model, priceModel string) (backfilled int64, skipped int64, err error) {
 	return f.backfilled, f.backfillSkipped, f.backfillErr
 }
 func (f *fakePricing) NotifyModelsChanged() {

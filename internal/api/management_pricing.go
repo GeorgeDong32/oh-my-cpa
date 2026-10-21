@@ -2,8 +2,10 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -39,7 +41,7 @@ type PricingManager interface {
 	DeleteChannel(ctx context.Context, channel string) (bool, error)
 	DeleteChannelChecked(context.Context, string, func([]pricing.ChannelMultiplier) error) (bool, error)
 	TriggerSync() bool
-	BackfillUsage(ctx context.Context, model string) (backfilled int64, skipped int64, err error)
+	BackfillUsage(ctx context.Context, model, priceModel string) (backfilled int64, skipped int64, err error)
 	NotifyModelsChanged()
 	IsRunning() bool
 	SetAutoSyncInterval(ctx context.Context, hours int64) error
@@ -516,6 +518,7 @@ func pricingErrorResponse(writer http.ResponseWriter, err error) {
 		{pricing.ErrNoAutomaticMatch, "pricing_no_automatic_match"},
 		{pricing.ErrInvalidMode, "pricing_invalid_mode"},
 		{pricing.ErrInvalidReview, "pricing_invalid_review"},
+		{pricing.ErrModelUnpriced, "pricing_model_unpriced"},
 	} {
 		if errors.Is(err, known.target) {
 			writeJSON(writer, http.StatusBadRequest, map[string]string{"error": err.Error(), "code": known.code})
@@ -711,10 +714,12 @@ func (h *Handler) startPricingSync(writer http.ResponseWriter, request *http.Req
 }
 
 // backfillPricingModel fills the cost of a model's stored unpriced requests
-// from the price versions effective at each request's own timestamp. The
-// operation is operator-directed and audited; rows already carrying a cost are
-// never touched, and rows still without an effective version are reported as
-// skipped rather than guessed.
+// from the current version of the model's own price row — or, when the body
+// names a price_model, from that row's rates: the operator asserting the two
+// names are the same model priced under its current name (a retired bare name
+// filled from its prefixed book row). The operation is operator-directed and
+// audited; rows already carrying a cost are never touched, and rows the Quote
+// cannot price are reported as skipped rather than guessed.
 func (h *Handler) backfillPricingModel(writer http.ResponseWriter, request *http.Request) {
 	if !h.requirePricing(writer) {
 		return
@@ -724,7 +729,21 @@ func (h *Handler) backfillPricingModel(writer http.ResponseWriter, request *http
 		writeError(writer, http.StatusBadRequest, "model path parameter is required")
 		return
 	}
-	backfilled, skipped, err := h.pricing.BackfillUsage(request.Context(), model)
+	var body pricingBackfillRequest
+	if request.Body != nil {
+		raw, err := io.ReadAll(http.MaxBytesReader(writer, request.Body, 4*1024))
+		if err != nil {
+			writeError(writer, http.StatusBadRequest, "invalid backfill request body")
+			return
+		}
+		if len(strings.TrimSpace(string(raw))) > 0 {
+			if err := json.Unmarshal(raw, &body); err != nil {
+				writeError(writer, http.StatusBadRequest, "invalid backfill request body")
+				return
+			}
+		}
+	}
+	backfilled, skipped, err := h.pricing.BackfillUsage(request.Context(), model, body.PriceModel)
 	if err != nil {
 		pricingErrorResponse(writer, err)
 		return
@@ -736,6 +755,12 @@ func (h *Handler) backfillPricingModel(writer http.ResponseWriter, request *http
 		return
 	}
 	writeJSON(writer, http.StatusOK, map[string]any{"backfilled": backfilled, "skipped": skipped})
+}
+
+// pricingBackfillRequest names the book row whose rates govern a backfill;
+// empty means the model's own row.
+type pricingBackfillRequest struct {
+	PriceModel string `json:"price_model"`
 }
 
 // pricingScheduleRequest is the auto-sync interval update payload.

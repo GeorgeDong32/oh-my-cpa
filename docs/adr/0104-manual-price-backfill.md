@@ -33,9 +33,13 @@ direction".
 2. **The fill applies the recorded rate at each request's own timestamp.**
    Service tiers and time-of-day windows evaluate exactly as the ingest lock
    would have, and the channel multiplier effective per request applies. The
-   operator's statement is "this rate governed these requests"; OMC does not
-   reconstruct rates that changed in between — a request billed under a price
-   the operator never recorded stays estimable only outside the ledger.
+   rate comes from the model's own book row — or, when the operator names one
+   (`price_model`), from that row's: the assertion "this retired name is the
+   same model, priced in the book under its current name" is the operator's
+   to make, and the history keeps its own name while the rates carry the
+   named version's id. OMC does not reconstruct rates that changed in between
+   — a request billed under a price the operator never recorded stays
+   estimable only outside the ledger.
 3. **A backfilled cost is marked for life.** It lands in the terminal
    `backfilled` status and never masquerades as a cost locked at ingestion.
    The breakdown view says the cost was computed after the fact. Migration

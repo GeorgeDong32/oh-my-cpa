@@ -1267,9 +1267,11 @@ export const api = {
     });
   },
 
-  async backfillPricingModel(model: string): Promise<{ backfilled: number; skipped: number }> {
+  async backfillPricingModel(model: string, priceModel?: string): Promise<{ backfilled: number; skipped: number }> {
+    const body = priceModel ? JSON.stringify({ price_model: priceModel }) : undefined;
     return request<{ backfilled: number; skipped: number }>(`/pricing/models/${encodeURIComponent(model)}/backfill`, {
       method: 'POST',
+      body,
     });
   },
 

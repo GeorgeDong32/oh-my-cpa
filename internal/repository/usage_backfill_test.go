@@ -46,7 +46,7 @@ func TestBackfillUsagePricesStoredUnpricedRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	backfilled, skipped, err := r.BackfillUsagePricing(ctx, model)
+	backfilled, skipped, err := r.BackfillUsagePricing(ctx, model, model)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestBackfillUsagePricesStoredUnpricedRequests(t *testing.T) {
 	}
 
 	// Idempotent: every row now carries a cost, so a second pass fills nothing.
-	againFilled, againSkipped, err := r.BackfillUsagePricing(ctx, model)
+	againFilled, againSkipped, err := r.BackfillUsagePricing(ctx, model, model)
 	if err != nil || againFilled != 0 || againSkipped != 0 {
 		t.Fatalf("second pass: %d/%d %v", againFilled, againSkipped, err)
 	}
@@ -94,6 +94,31 @@ func TestBackfillUsagePricesStoredUnpricedRequests(t *testing.T) {
 	}
 	if other != 0 {
 		t.Fatal("another model's rows were backfilled")
+	}
+
+	// A retired name can be priced from another book row the operator asserts
+	// prices the same model: the history keeps its own name, the rates come
+	// from the named row.
+	if _, err := r.InsertUsageEvents(ctx, []usage.Event{{
+		InstanceID: "default", EventKey: "bf-retired", Model: "retired-bare-name",
+		TimestampMS: time.Now().UnixMilli() - 60_000, InputTokens: 1_000_000,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	crossFilled, crossSkipped, err := r.BackfillUsagePricing(ctx, "retired-bare-name", model)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if crossFilled != 1 || crossSkipped != 0 {
+		t.Fatalf("cross-name backfill: %d/%d", crossFilled, crossSkipped)
+	}
+	var versionModel string
+	if err := r.SQL().QueryRow(`SELECT v.model FROM usage_events e JOIN model_price_versions v ON v.id = e.price_version_id
+ WHERE e.model = 'retired-bare-name' AND e.pricing_status = 'backfilled'`).Scan(&versionModel); err != nil {
+		t.Fatal(err)
+	}
+	if versionModel != model {
+		t.Fatalf("rates did not come from the asserted row: %q", versionModel)
 	}
 	// Facts were cleared for the rollup to re-fold.
 	var facts int64
@@ -129,7 +154,7 @@ func TestBackfillUsageNeverTouchesPricedRows(t *testing.T) {
 	if err := r.SQL().QueryRow(`SELECT cost_nanos FROM usage_events WHERE id = ?`, rowID).Scan(&before); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := r.BackfillUsagePricing(ctx, model); err != nil {
+	if _, _, err := r.BackfillUsagePricing(ctx, model, model); err != nil {
 		t.Fatal(err)
 	}
 	var after int64

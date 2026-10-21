@@ -75,7 +75,7 @@ type Store interface {
 	DeleteChannelMultiplier(context.Context, string) (bool, error)
 	ListMatchReviews(context.Context) (map[string]string, error)
 	SaveMatchReview(ctx context.Context, model, upstreamID string) error
-	BackfillUsagePricing(ctx context.Context, model string) (backfilled int64, skipped int64, err error)
+	BackfillUsagePricing(ctx context.Context, model, priceModel string) (backfilled int64, skipped int64, err error)
 }
 
 // SyncResult summarizes one sync run for logs, API and audit. Pruned counts
@@ -666,16 +666,21 @@ func (s *Service) recordFailure(ctx context.Context, syncErr error) {
 var ErrModelUnpriced = errors.New("model has no price row to backfill from")
 
 // BackfillUsage fills the cost of a model's stored unpriced requests from the
-// price versions effective at each request's own timestamp. It shares the
-// price-write lock with syncs and edits, and the repository clears the derived
-// usage facts so the dashboards re-fold the new costs.
-func (s *Service) BackfillUsage(ctx context.Context, model string) (backfilled int64, skipped int64, err error) {
+// current price version of priceModel — the model itself, or another book row
+// the operator asserts prices the same model under its current name. It
+// shares the price-write lock with syncs and edits, and the repository clears
+// the derived usage facts so the dashboards re-fold the new costs.
+func (s *Service) BackfillUsage(ctx context.Context, model, priceModel string) (backfilled int64, skipped int64, err error) {
 	if s == nil || s.store == nil {
 		return 0, 0, errors.New("pricing service is not initialized")
 	}
 	model = strings.TrimSpace(model)
+	priceModel = strings.TrimSpace(priceModel)
 	if model == "" {
 		return 0, 0, ErrModelUnpriced
+	}
+	if priceModel == "" {
+		priceModel = model
 	}
 	prices, err := s.store.ListModelPrices(ctx)
 	if err != nil {
@@ -683,17 +688,17 @@ func (s *Service) BackfillUsage(ctx context.Context, model string) (backfilled i
 	}
 	priced := false
 	for _, row := range prices {
-		if row.Model == model {
+		if row.Model == priceModel {
 			priced = true
 			break
 		}
 	}
 	if !priced {
-		return 0, 0, fmt.Errorf("%w: %q", ErrModelUnpriced, model)
+		return 0, 0, fmt.Errorf("%w: %q", ErrModelUnpriced, priceModel)
 	}
 	s.priceWrites.Lock()
 	defer s.priceWrites.Unlock()
-	return s.store.BackfillUsagePricing(ctx, model)
+	return s.store.BackfillUsagePricing(ctx, model, priceModel)
 }
 
 // ListPrices exposes the price table of the current CPA catalog, each row

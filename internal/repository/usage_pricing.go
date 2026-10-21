@@ -146,21 +146,27 @@ func eventTokens(input, output, cacheRead, cacheWrite int64) pricing.Tokens {
 }
 
 // BackfillUsagePricing fills the cost of a model's stored unpriced requests
-// using the model's current price version — the rate the operator has recorded
-// for the model now, applied at each request's own timestamp so tiers and
-// time-of-day windows evaluate exactly as the ingest lock would have. The
-// channel multiplier is the one effective per request. Rows already carrying a
-// cost are never touched (idempotent); a row the Quote cannot price is
-// reported as skipped rather than guessed. The derived usage facts are cleared
-// and the aggregation checkpoint zeroed, so the rollup re-folds the new
-// costs. Backfilled rows land in the terminal 'backfilled' status (migration
-// 044), distinguishable forever from costs locked at ingestion.
-func (r *Repository) BackfillUsagePricing(ctx context.Context, model string) (backfilled int64, skipped int64, err error) {
+// using the current price version of priceModel — the rate the operator has
+// recorded and asserts governs these requests (usually the same model; a
+// different name when the model is priced in the book under its current
+// routing name, such as a retired bare name priced from its codex/ prefixed
+// row). Applied at each request's own timestamp so tiers and time-of-day
+// windows evaluate exactly as the ingest lock would have. The channel
+// multiplier is the one effective per request. Rows already carrying a cost
+// are never touched (idempotent); a row the Quote cannot price is reported as
+// skipped rather than guessed. The derived usage facts are cleared and the
+// aggregation checkpoint zeroed, so the rollup re-folds the new costs.
+// Backfilled rows land in the terminal 'backfilled' status (migration 044),
+// distinguishable forever from costs locked at ingestion.
+func (r *Repository) BackfillUsagePricing(ctx context.Context, model, priceModel string) (backfilled int64, skipped int64, err error) {
 	if err := r.requirePricingSchema(ctx); err != nil {
 		return 0, 0, err
 	}
+	if priceModel == "" {
+		priceModel = model
+	}
 	version, err := scanPriceVersion(r.SQL().QueryRowContext(ctx, priceVersionSelect+`
- WHERE model = ? AND available = 1 ORDER BY effective_from_ms DESC, id DESC LIMIT 1`, model))
+ WHERE model = ? AND available = 1 ORDER BY effective_from_ms DESC, id DESC LIMIT 1`, priceModel))
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, 0, fmt.Errorf("backfill %s: %w", model, ErrNotFound)
 	}
