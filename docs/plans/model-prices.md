@@ -13,8 +13,12 @@ decision record is ADR 0030; the request-time lock it extends is ADR 0003.
    matches an OpenRouter model is priced automatically, and a model CPA starts
    serving is priced within the five-minute catalog reconciliation from the
    stored snapshot, without waiting for the next download.
-2. **One source.** OpenRouter is the only automatic source. The URL is a
-   compile-time constant; no operator-supplied URL is ever fetched.
+2. **One primary source, one bounded fallback.** OpenRouter is the primary
+   automatic source and models.dev's first-party entries the fallback for a
+   model OpenRouter lists nothing for (ADR 0103). Both URLs are compile-time
+   constants; no operator-supplied URL is ever fetched. The fallback is
+   consulted only when the primary match fails, never overwrites a row
+   OpenRouter priced, and a pin is never reinterpreted as a fallback match.
 3. **Pricing follows the current CPA catalog.** A complete catalog snapshot is
    persisted separately from usage history; removed models leave the book while
    their immutable request snapshots remain queryable.
@@ -115,6 +119,25 @@ version trigger compares the stored text and two spellings of the same tiers
 would mint a version on every sync. A tier without a zone keeps the spelling it
 had before zones existed, and the editor saves a UTC window without one, for the
 same reason.
+
+## Decoding models.dev (fallback)
+
+`internal/pricing/modelsdev.go` reduces the catalogue to first-party priced
+entries (ADR 0103):
+
+- only entries under the maker's own namespace are kept, matched by the
+  entry's source-declared family or, failing that, its name prefix;
+- relays, aggregators, regional arms, plan namespaces and cross-family
+  entries inside a first-party namespace are skipped;
+- rates are USD per 1M already and carry over unscaled; context tiers map onto
+  price tiers and the `context_over_200k` spelling maps to a 200K threshold
+  when no tier list exists;
+- the missing-cache-rate rule is the same as OpenRouter's: an omission
+  resolves to the prompt rate, never to zero.
+
+The decoded entries reuse the OpenRouter catalog index and match chain, ranked
+by the models.dev namespace order; the fetch rides the primary sync, is cached
+in memory for fifteen minutes and is never persisted.
 
 ## Matching rule
 
@@ -352,14 +375,18 @@ Price history rejects corrupt tier snapshots rather than presenting them as base
   keeps the last complete snapshot and good prices, and reconciliation keeps
   pricing new models from the stored snapshot. Local reconciliation preserves the
   previous refresh error and schedule; only a successful price refresh clears it.
-- A model OpenRouter does not list stays unpriced until an operator links or
-  prices it; suggestions only help when the name resembles a listed model.
+- A model OpenRouter does not list is priced from models.dev's first-party
+  entry for its maker when there is one (ADR 0103), and that row is replaced
+  by the OpenRouter rate on the first sync that finds a match. A model with
+  neither stays unpriced until an operator links or prices it; suggestions
+  only help when the name resembles a listed model.
 - An install upgraded to migration 031 has no recorded answers yet, so each
   custom or linked price that already has a candidate is announced once.
-- Rows priced from models.dev before the switch keep their `modelsdev` source
-  until a sync matches them, and stay priced meanwhile; the book labels them as
-  legacy. A version written under that source still prices late-arriving
-  requests stamped inside its period.
+- Rows priced from models.dev — legacy rows from before the OpenRouter
+  switch, and fallback rows — keep their `modelsdev` source until a sync
+  matches them on OpenRouter, and stay priced meanwhile; the book labels the
+  source plainly. A version written under that source still prices
+  late-arriving requests stamped inside its period.
 - A request's cost breakdown is recomputed from the versions it locked. The stored
   amount is authoritative; `recomputed_matches` flags any disagreement.
 - **Demo mode runs no sync.** The OpenRouter snapshot, the prices, one pin, one

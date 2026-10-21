@@ -1,6 +1,6 @@
 # ADR 0030: OpenRouter is the price source, and a price carries tiers and a channel multiplier
 
-- Status: Accepted
+- Status: Accepted. Decision 1 named OpenRouter the only automatic source; ADR 0103 later added models.dev as the fallback for a model OpenRouter lists nothing for. Everything else stands unchanged.
 - Date: 2026-09-28
 - Extends: ADR 0003 (request-time price snapshots), which stands unchanged
 

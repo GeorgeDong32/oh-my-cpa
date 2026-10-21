@@ -2119,7 +2119,9 @@ raw header or widen what was deliberately minimised.
 ## 7. Pricing flow
 
 The catalog, the editable current price, and the immutable version history are
-separate things (ADR 0003); OpenRouter is the only automatic source, and a price
+separate things (ADR 0003); OpenRouter is the primary automatic source with
+models.dev's first-party entries as the fallback for a model OpenRouter lists
+nothing for (ADR 0103), and a price
 carries tiers and is scaled per channel (ADR 0030). The design, matching chain
 and limits are in `docs/plans/model-prices.md`.
 

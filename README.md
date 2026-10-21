@@ -336,7 +336,7 @@ troubleshooting.
 <summary><b>Pricing & cost</b></summary>
 
 - **Request-time snapshots**: a request's cost is fixed by immutable price versions when it completes.
-- **OpenRouter price book**: every served model priced from OpenRouter's public list, including long-context and time-of-day tiers.
+- **OpenRouter price book**: every served model priced from OpenRouter's public list, including long-context and time-of-day tiers; a model OpenRouter does not list falls back to its maker's models.dev rates.
 - **Linked and custom prices**: pin a model to an OpenRouter entry or set custom rates, with tier presets and a calculator.
 - **Channel multipliers**: scale everything one provider answers, for example a relay billed at 30% of list.
 - **Channel model prices**: give the same model different custom rates and time tiers on different channels, with shared prices as the default.
