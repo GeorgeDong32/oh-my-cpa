@@ -1,6 +1,7 @@
 package sessionstats
 
 import (
+	"bytes"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -86,4 +87,61 @@ func readFileLimited(file string, cap int64) ([]byte, bool) {
 		return nil, false
 	}
 	return body, true
+}
+
+// forEachJSONLine reads a capped file and hands each non-empty line's raw
+// bytes to visit, tolerating a UTF-8 BOM and CRLF endings.
+func forEachJSONLine(file string, mtimeMS int64, visit func(raw []byte)) {
+	forEachJSONLineIndexed(file, mtimeMS, func(raw []byte, _ int) { visit(raw) })
+}
+
+// forEachJSONLineIndexed additionally reports the line's ordinal, for dedup
+// keys that need a within-file discriminator.
+func forEachJSONLineIndexed(file string, mtimeMS int64, visit func(raw []byte, index int)) {
+	body, ok := readFileLimited(file, maxFileBytes)
+	if !ok {
+		return
+	}
+	_ = mtimeMS
+	index := 0
+	for _, line := range bytes.Split(body, []byte("\n")) {
+		line = bytes.TrimSuffix(line, []byte("\r"))
+		if index == 0 {
+			line = bytes.TrimPrefix(line, []byte("\xef\xbb\xbf"))
+		}
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		visit(line, index)
+		index++
+	}
+}
+
+// forEachTextLine hands each text line (BOM/CRLF tolerated) to visit.
+func forEachTextLine(file string, mtimeMS int64, visit func(line string)) {
+	body, ok := readFileLimited(file, maxFileBytes)
+	if !ok {
+		return
+	}
+	_ = mtimeMS
+	text := strings.TrimPrefix(string(body), "\xef\xbb\xbf")
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSuffix(line, "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		visit(line)
+	}
+}
+
+// clampNonNeg floors a value at zero.
+func clampNonNeg(value int64) int64 {
+	if value < 0 {
+		return 0
+	}
+	return value
+}
+
+func sortStrings(values []string) {
+	sort.Strings(values)
 }

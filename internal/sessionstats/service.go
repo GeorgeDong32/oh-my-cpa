@@ -111,6 +111,32 @@ func NewService(store Store, home string, logger Logger) *Service {
 			ampParser{},
 			droidParser{},
 			zedParser{},
+			// Batch 2: the remaining file-class clients (spec §2).
+			ompParser{},
+			kimchiParser{},
+			senpiParser{},
+			craftAgentParser{},
+			codebuddyParser{},
+			workbuddyParser{},
+			cherrystudioParser{},
+			grokParser{},
+			lmstudioParser{},
+			codebuffParser{},
+			freebuffParser{},
+			dshParser{},
+			muxParser{},
+			reasonixParser{},
+			mcodeParser{},
+			gjcParser{},
+			junieParser{},
+			opencodereviewParser{},
+			jcodeParser{},
+			augmentParser{},
+			fxParser{},
+			commandcodeParser{},
+			openclawParser{},
+			gooseParser{},
+			crushParser{},
 		},
 	}
 	return service
@@ -167,8 +193,14 @@ func (s *Service) ScanOnce(ctx context.Context) {
 // did not move — the upstream message_cache solves this with per-parser
 // cache versions. Bump a client's version when its parser changes.
 var parserVersions = map[string]string{
-	"claude-code": "v1", "codex": "v2", "pi": "v1", "qwen": "v1", "kimi": "v1",
+	"claude-code": "v1", "codex": "v2", "pi": "v1", "qwen": "v2", "kimi": "v1",
 	"gemini": "v1", "opencode": "v2", "amp": "v2", "droid": "v1", "zed": "v1",
+	"omp": "v1", "kimchi": "v1", "senpi": "v1", "craft-agent": "v1",
+	"codebuddy": "v1", "workbuddy": "v1", "cherrystudio": "v1", "grok": "v1",
+	"lmstudio": "v1", "codebuff": "v1", "freebuff": "v1", "dsh": "v1",
+	"mux": "v1", "reasonix": "v1", "mcode": "v1", "gjc": "v1", "junie": "v1",
+	"opencodereview": "v1", "jcode": "v1", "augment": "v1", "fx": "v1",
+	"commandcode": "v1", "openclaw": "v1", "goose": "v1", "crush": "v1",
 }
 
 func parserVersion(client string) string {

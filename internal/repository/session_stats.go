@@ -17,9 +17,20 @@ var _ sessionstats.Store = (*Repository)(nil)
 // port of merge_message_completeness; identity fields come from the
 // lexicographically smallest path. Session-scoped keys (the tool_result
 // marker) merge per file only and never collapse across files.
-const dedupedSessionMessages = `WITH scoped AS (
+// grokUnifiedCovered implements the upstream prefer-unified-log rule at
+// session granularity: Grok keeps writing updates.jsonl after the unified
+// log appears, so a session with unified-log rows would double-count its
+// updates-lane rows. The upstream suppresses by timestamp span; this port
+// suppresses the whole updates lane for any covered session.
+const grokUnifiedCovered = `SELECT DISTINCT session_id FROM session_messages
+ WHERE client = 'grok' AND dedup_key LIKE 'grok-unified:%'`
+
+const dedupedSessionMessages = `WITH unified_sessions AS (` + grokUnifiedCovered + `),
+ scoped AS (
   SELECT m.*, CASE WHEN m.dedup_key LIKE '%:tool_result:%' THEN m.path ELSE '' END AS merge_scope
   FROM session_messages m
+  WHERE NOT (m.client = 'grok' AND m.dedup_key NOT LIKE 'grok-unified:%'
+             AND m.session_id IN (SELECT session_id FROM unified_sessions))
 ), ranked AS (
   SELECT s.*, ROW_NUMBER() OVER (PARTITION BY s.client, s.dedup_key, s.merge_scope ORDER BY s.path) AS rn
   FROM scoped s

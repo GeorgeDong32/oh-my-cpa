@@ -1,6 +1,7 @@
 # Local session statistics
 
-Status: Batch 1 delivered (10 clients, live-verified); Batch 2/3 pending.
+Status: Batch 1 + Batch 2 delivered (35 clients registered, golden fixtures green);
+Batch 3 pending.
 Source of truth for the session-stats feature. Decisions here are final unless
 the review overturns them; later batches update this document, never a side
 conversation.
@@ -344,3 +345,82 @@ the 口径 difference from the gateway dashboard.
 - The sessions page ships the tokens.ci information architecture minus the
   per-request log and the contribution heatmap styling; weekday bars and
   biggest-day replace the heatmap until a later batch wants it.
+
+### Batch 2 deviations
+
+- **grok**: dual-source scan ported (sessions tree + sibling logs root);
+  the unified-log model attribution tracks `model changed` /
+  `subagent model resolved` records per sid but not the upstream's pid
+  generation and child-evidence machinery, and the subagent
+  spawn/terminal evidence rows are not ported. The updates parser keeps
+  the authoritative-usage path plus the monotonic cumulative-counter
+  fallback (user-message bounded, first observation only records the
+  baseline) but not the signals.json reconciliation; summary.json model
+  metadata reads current_model_id/model_id/model. The unified log reads
+  the capped whole file instead of the upstream's bounded streaming
+  window. The prefer-unified-log rule is implemented at SESSION
+  granularity in the repository read view (a grok session with unified
+  rows drops its updates rows wholesale) rather than the upstream's
+  timestamp-span suppression — same guarantee against the ~2×
+  double-count, coarser at midnight-straddling boundaries.
+- **lmstudio**: whole-file marker scan (see grok); the dedup key addresses
+  the marker's byte offset, which stays stable across re-parses of an
+  unchanged file. The model comes from the last `"model"`/`"id"` string
+  field in the preceding metadata slice rather than the upstream's
+  two-phase field search; the timestamp header parser accepts RFC3339 and
+  naive local `[YYYY-MM-DD HH:MM:SS.mmm]` stamps.
+- **crush**: cost-only rows (no token buckets) carry a `session-total`
+  model; OMC estimates nothing for them — message counts and activity
+  land, and the model stays unpriced by design. The registry resolves
+  `{path, data_dir}` entries (data_dir relative to the project path) from
+  the config/share/library candidates; day buckets group by UTC day via
+  SQL rather than the upstream's configurable bucket timezone.
+- **openclaw**: the sessions.json index dispatcher is not ported —
+  discovery walks every agents root for `*.jsonl` and
+  `openclaw-agent.sqlite` directly (exact suffix match); the SQLite path
+  resolves model/provider from model_change and model-snapshot events
+  only (no session_windows join). The codex-mirror turn scoping in dedup
+  keys is not ported.
+- **workbuddy**: JSONL transcript lane only; the upstream's
+  workbuddy.db SQLite fallback is not ported (deviation recorded — the
+  JSONL transcripts cover the CLI lane).
+- **codebuff/freebuff**: both scan the manicode channel trees
+  (manicode, manicode-dev, manicode-staging); freebuff gates on the
+  base2-free root agent, skips any chat carrying authoritative provider
+  usage (that chat belongs to the codebuff scan), and estimates tokens
+  from message text (~4 chars/token). The settings.json model fallback
+  and the RunState model hints are carried only when present in the
+  row's own metadata.
+- **jcode**: journal rows replace snapshot rows through the shared
+  max-per-key merge rather than the upstream's explicit known-keys pass;
+  the cache split applies when the record omits
+  cache_creation_input_tokens or the cache read exceeds the plain input.
+- **commandcode**: usage rows split the cache buckets out of inputTokens
+  (the upstream's inclusive-input rule with the 1e12 ceiling); all-zero
+  rows without a positive reported cost are dropped (an explicit $0 only
+  survives with real buckets); the char-based estimator applies only when
+  a row has no usage object; the config-file model fallback reads
+  `<dir>/.config.json`. The /rewind active-branch filter and the legacy
+  flat schema (top-level role/content) are not ported — orphaned-branch
+  usage still counts and legacy rows are dropped.
+- **mcode**: roots are the Tokens headless capture dirs
+  (`~/.config/tokens/headless/mcode`, macOS Application Support sibling);
+  the parser ignores a stream whose exec.result never arrives (upstream
+  behavior), so streams captured by tools other than Tokens are invisible
+  by design.
+- **cherrystudio**: partial rows (uuid-only or message-id-only) adopt a
+  complete row's key when the same uuid appears with full identity — a
+  single-pass simplification of the upstream's connect-any-order
+  reconciliation.
+- **senpi**: OmO task children roots are not followed (children appear
+  under their own root when present).
+- **dsh**: session logs discovered under both spellings
+  (`session.jsonl`, `session.v<N>.jsonl`, each optionally `.zstd`); the
+  served model resolves responseModel → model from
+  `data.message.source`, the provider from the same source, and the
+  request-header config as fallback — the replayState responseModel
+  pointer path is flattened.
+- **reasonix**: the dedup key carries the line ordinal alongside
+  requests/total (upstream shape).
+- **kimchi**: the scoped namespace keys on the entry id (the upstream
+  scoped branch), not the response id.

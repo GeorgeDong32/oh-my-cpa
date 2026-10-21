@@ -15,6 +15,13 @@ import (
 type piParser struct {
 	client string
 	roots  func(home string) []string
+	// scopedKeys keeps Kimchi's historical session-scoped dedup namespace
+	// (`client:session:message`), which predates the cross-session key the
+	// standard pi lane adopted (upstream #1306).
+	scopedKeys bool
+	// rewriteCustomEndpoint moves Craft Agent's user-defined endpoint
+	// provider ("custom-endpoint") to the provider the model name implies.
+	rewriteCustomEndpoint bool
 }
 
 func (p piParser) Client() string { return p.client }
@@ -137,6 +144,12 @@ func (p piParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEntry))
 		provider := strings.TrimSpace(message.Provider)
 		if provider == "" {
 			provider = "pi"
+		} else if p.rewriteCustomEndpoint && provider == "custom-endpoint" {
+			// A user-pointed endpoint is not a vendor any pricing source knows;
+			// attribute to the model's own provider when inferable (tokens#48).
+			if inferred := providerForModel(model); inferred != "" {
+				provider = inferred
+			}
 		}
 		ts := mtimeMS
 		if parsed, valid := ParseRFC3339MS(entry.Timestamp); valid {
@@ -151,6 +164,13 @@ func (p piParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEntry))
 		} else {
 			digest := sha256.Sum256(raw)
 			key = p.client + ":record:" + hex.EncodeToString(digest[:12])
+		}
+		if p.scopedKeys {
+			// Kimchi's historical namespace keys on the ENTRY id (the
+			// upstream scoped branch), not the response id.
+			if entry.ID != nil && strings.TrimSpace(*entry.ID) != "" {
+				key = p.client + ":" + sessionID + ":" + strings.TrimSpace(*entry.ID)
+			}
 		}
 		emit(UnifiedEntry{
 			Client: p.client, ModelID: model, ProviderID: provider, SessionID: sessionID,
