@@ -359,18 +359,81 @@ func (codebuddyParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEn
 	return nil
 }
 
-// workbuddyParser: ~/.workbuddy/projects and ~/.workbuddy-ai variants.
+// workbuddyParser: detailed JSONL transcripts under the projects dirs plus
+// the older aggregate workbuddy.db.
 type workbuddyParser struct{}
 
 func (workbuddyParser) Client() string { return "workbuddy" }
 
 func (workbuddyParser) Roots(home string) []string {
-	return []string{home + "/.workbuddy/projects", home + "/.workbuddy-ai/projects"}
+	return []string{home + "/.workbuddy/projects", home + "/.workbuddy-ai/projects", home + "/.workbuddy"}
 }
 
-func (workbuddyParser) Discover(root string) ([]string, error) { return WalkJSONLFiles(root) }
+func (workbuddyParser) Discover(root string) ([]string, error) {
+	if filepath.Base(filepath.Clean(root)) == ".workbuddy" {
+		return WalkFilesWithSuffix(root, "workbuddy.db")
+	}
+	return WalkJSONLFiles(root)
+}
 
 func (workbuddyParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEntry)) error {
+	if filepath.Base(file) == "workbuddy.db" {
+		parseWorkbuddySQLite(file, emit)
+		return nil
+	}
+	if strings.EqualFold(filepath.Ext(file), ".log") {
+		parseBuddyExtensionLogFile("workbuddy", "workbuddy", file, mtimeMS, emit)
+		return nil
+	}
 	parseBuddyJSONLFile("workbuddy", "workbuddy", file, mtimeMS, emit)
 	return nil
+}
+
+// parseWorkbuddySQLite reads the aggregate session_usage table: one row per
+// session with a cumulative "used" token count.
+func parseWorkbuddySQLite(file string, emit func(UnifiedEntry)) {
+	db, err := openReadonlyDB(file)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	rows, err := db.Query(`
+		SELECT su.session_id, su.used, su.updated_at, s.model, s.cwd
+		FROM session_usage su
+		LEFT JOIN sessions s ON s.id = su.session_id
+		WHERE su.used IS NOT NULL AND su.used > 0
+		  AND su.updated_at IS NOT NULL AND su.updated_at > 0`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var session string
+		var used, updatedAt int64
+		var model, cwd *string
+		if err := rows.Scan(&session, &used, &updatedAt, &model, &cwd); err != nil {
+			continue
+		}
+		modelID := "auto"
+		if model != nil && strings.TrimSpace(*model) != "" {
+			modelID = strings.TrimSpace(*model)
+		}
+		ts := updatedAt
+		if updatedAt <= 10_000_000_000 {
+			ts = updatedAt * 1000
+		}
+		wsKey, wsLabel := "", ""
+		if cwd != nil {
+			if key := NormalizeWorkspaceKey(*cwd); key != "" {
+				wsKey, wsLabel = key, WorkspaceLabelFromKey(key)
+			}
+		}
+		emit(UnifiedEntry{
+			Client: "workbuddy", ModelID: modelID,
+			ProviderID: providerForModelOr(modelID, "workbuddy"),
+			SessionID:  session, WorkspaceKey: wsKey, WorkspaceLabel: wsLabel,
+			TimestampMS: ts, Tokens: TokenBreakdown{Input: clampNonNeg(used)},
+			DedupKey: "workbuddy:" + session + ":" + strconv.FormatInt(updatedAt, 10),
+		})
+	}
 }

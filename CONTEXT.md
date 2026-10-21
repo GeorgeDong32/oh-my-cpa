@@ -267,6 +267,27 @@ plugin-driven row names — since CPA's tally covers every auth-file type, and
 calling a channel off on another channel's files would assert something false
 about who can still serve.
 
+## Local session statistics
+
+A second observability lane, independent of gateway usage: `internal/sessionstats`
+reads the coding agents' own local session stores (transcripts, IDE
+globalStorage, SQLite) read-only and usage-fields-only. Vocabulary:
+
+- **Client** — one agent tool's local store ("claude-code", "codex", "pi", …);
+  the full registry lives in `docs/plans/session-stats.md` §2.
+- **Entry** — one usage-bearing record with additive buckets
+  (input/output/cache_read/cache_write/reasoning); every parser splits its
+  source's inclusive totals so the five buckets stay mutually exclusive.
+- **Dedup key** — a stable identity per record; reading merges per-field max
+  across files so a deleted source's survivors take over naturally.
+- **Sessionization** — 3-minute idle gap over a session's deduped points;
+  session counts come from the activity table, not row counts.
+- **Cost estimate** — read-time `pricing.Quote` at base rates (no tiers, no
+  channel multipliers): an aggregate bucket cannot decide per-request tier
+  assertions. Unpriced models report as unpriced, never $0.
+
+Message content is never read or stored; scans are local-only.
+
 ## Auth model
 
 There is exactly one administrator login credential in the whole system: the

@@ -137,6 +137,19 @@ func NewService(store Store, home string, logger Logger) *Service {
 			openclawParser{},
 			gooseParser{},
 			crushParser{},
+			// Batch 3: VS Code extension storages, remaining SQLite clients,
+			// and the synthetic gateway filter.
+			clineParser{},
+			roocodeParser{},
+			kilocodeParser{},
+			copilotVSCodeParser{},
+			kiloParser{},
+			micodeParser{},
+			hermesParser{},
+			unslothParser{},
+			zcodeParser{},
+			kiroParser{},
+			octofriendParser{},
 		},
 	}
 	return service
@@ -201,6 +214,9 @@ var parserVersions = map[string]string{
 	"mux": "v1", "reasonix": "v1", "mcode": "v1", "gjc": "v1", "junie": "v1",
 	"opencodereview": "v1", "jcode": "v1", "augment": "v1", "fx": "v1",
 	"commandcode": "v1", "openclaw": "v1", "goose": "v1", "crush": "v1",
+	"cline": "v1", "roocode": "v1", "kilocode": "v1", "copilot-vscode": "v1",
+	"kilo": "v1", "micode": "v1", "hermes": "v1", "unsloth": "v1",
+	"zcode": "v1", "kiro": "v1", "synthetic": "v1",
 }
 
 func parserVersion(client string) string {
@@ -260,6 +276,10 @@ func (s *Service) scanClient(ctx context.Context, parser Parser) {
 				if entry.MessageCount == 0 {
 					entry.MessageCount = 1
 				}
+				// Gateway traffic routed through synthetic.new / Octofriend
+				// reports the gateway's own model spellings; rewrite it so the
+				// row prices under the underlying model (upstream lib.rs).
+				normalizeSyntheticEntry(&entry)
 				if entry.DedupKey == "" {
 					// An empty key would otherwise merge every keyless entry in
 					// the file into one row; give each its own stable identity

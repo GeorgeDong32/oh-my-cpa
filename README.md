@@ -328,6 +328,7 @@ troubleshooting.
 - **Model panels**: token trend and usage ring by call model or by requested model, with cost shares.
 - **Request records**: multi-select facets and full-text search; with auto-refresh on, new records appear as soon as they are stored; a detail drawer with duration, TTFT, token breakdown and the raw per-request log. Each record keeps the model the upstream reported serving, and flags the ones where it differs from the model requested.
 - **Background collection**: usage is ingested by stream or polling, even with no browser open.
+- **Local session statistics**: a second observability lane over the coding agents' own local transcripts — Claude Code, Codex, pi, OpenCode, Gemini CLI, Qwen, Kimi, Amp, Factory, Zed and some forty more clients' session logs on the host are scanned read-only, deduplicated, bucketed to 15-minute activity, sessionized, and cost-estimated against the same price book. Nothing leaves the machine, message content is never read, and per-machine scans refresh on a timer or on demand.
 - **Logs and audit trail**: tail the gateway log, read the console's own service log, and review an append-only audit trail with filters and JSON export.
 
 </details>

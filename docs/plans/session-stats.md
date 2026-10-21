@@ -1,7 +1,7 @@
 # Local session statistics
 
 Status: Batch 1 + Batch 2 delivered (35 clients registered, golden fixtures green);
-Batch 3 pending.
+Batch 3 delivered (46 clients registered: 10 + 25 + 11); feature complete.
 Source of truth for the session-stats feature. Decisions here are final unless
 the review overturns them; later batches update this document, never a side
 conversation.
@@ -424,3 +424,54 @@ the 口径 difference from the gateway dashboard.
   requests/total (upstream shape).
 - **kimchi**: the scoped namespace keys on the entry id (the upstream
   scoped branch), not the response id.
+
+### Batch 3 deviations
+
+- **kiro**: the CLI snapshot lane (header json + sibling <stem>.jsonl,
+  message_ids turn join, explicit token counts, context-usage estimate) and
+  the IDE sess_<uuid> structured-payload lane are ported; the globalStorage
+  chat-artifact lane and the conversations_v2 SQLite lane are not. The IDE
+  flat-format aggregation (role/content rows without a payload wrapper) and
+  turn_end/contextUsage records are not ported — a flat file yields nothing.
+  Token counts are estimates from context-usage × context window and text
+  length, as upstream (Kiro writes no per-turn tokens).
+- **copilot-vscode**: the row-log projection is ported with APPEND
+  semantics for kind-0 and top-level kind-2 (upstream extend); the kind-1
+  patch walker handles object keys and the requests index but does not
+  materialize array-path parents inside a request (rare in the observed
+  shapes). timestamp-0 rows are dropped (upstream emits them).
+- **cline**: roots cover the VS Code task storages (Code, Code - OSS,
+  macOS, vscode-server) and the CLI home fallback ~/.cline/data/sessions;
+  the env-root overrides are not ported. The CLI manifest's metadata.title
+  is unused (no session-title surface).
+- **roo/kilo family**: per-entry modelInfo wins over the file-level
+  <environment_details> LAST-tag heuristic (slug preferred over name),
+  exactly as upstream.
+- **hermes**: profile discovery walks <root>/profiles/*/state.db directly;
+  the upstream's settings-driven data-isolation rule is simplified to "all
+  profiles under the root". The per-model ORDER BY keeps the session's
+  own model first so it carries the message count.
+- **unsloth**: chat and API lanes ported with the total-aware split
+  (input = max(total, prompt+completion) − completion − cache shares, with
+  upstream clamps); API event status filtering is not applied.
+- **zcode**: JSONL and modern model_usage SQLite lanes ported with the
+  inclusive-total split and usage field aliases; the LEGACY SQLite schema
+  variant is not (legacy databases yield nothing from the db lane).
+  resolveZcodeTimestamp clamps the back-anchor at zero instead of falling
+  back to completed_at when the duration overshoots.
+- **octofriend/synthetic**: the gateway re-attribution filter runs in the
+  scan emit path for every client (upstream runs it in the aggregation
+  pipeline); the octofriend ledger reads $XDG_DATA_HOME/octofriend/
+  sqlite.db. The token_usage fallback table is not ported.
+- **workbuddy.db**: aggregate session_usage lane ported (cumulative "used"
+  as input, seconds→ms normalization); discovered only under ~/.workbuddy.
+- **micode/kilo**: the shared OpenCode-schema engine ports the strict
+  (kilo) and lenient (micode) cache dialects; the incremental high-water
+  resumption is not ported — OMC's per-file watermark (mtime/size/parser
+  version) bounds rescan cost and whole-database reads are idempotent
+  through the dedup view.
+- **durations**: several Batch 3 lanes do not record durations
+  (kilo/micode completed−created, kiro turn spans, zcode sqlite duration)
+  — OMC's activity buckets derive from timestamps, and sessionization
+  treats a bare point as a zero-length span.
+

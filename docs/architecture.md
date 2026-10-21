@@ -992,6 +992,22 @@ returns `cooldown_cleared: false` plus `cooldown_error: "cooldown_clear_failed"`
 only the HTTP status is retained in the service diagnostic, and the console
 renders localized guidance.
 
+### Session statistics (local transcripts)
+
+`internal/sessionstats` ports the tokens.ci parsers (MIT) for the coding
+agents' own local session stores — file transcripts, IDE extension
+globalStorage and SQLite databases, all read strictly read-only with usage
+fields only. The service scans on a 10-minute loop with per-file watermarks
+(mtime, size, parser version); rows land in `session_messages` keyed
+`(client, path, dedup_key)` with a dirty-set-driven rebuild of
+`session_activity` (15-minute UTC buckets). Reads deduplicate at SQL time
+(per-field max over stable keys, dictionary-min path winner), sessionize
+with a 3-minute idle gap, and cost-estimate through `pricing.Quote` with
+tiers stripped (a 15-minute aggregate cannot decide per-request tier
+assertions). The `/omc/api/v1/sessions/*` endpoints and the Sessions page
+present the aggregates; `docs/plans/session-stats.md` is the feature's
+source of truth and deviation record.
+
 ## 3. Frontend shape
 
 The console scroll engine distinguishes native option lists by their computed overflow, not merely the shared holder DOM structure. Library-native `auto`/`scroll` holders retain browser-owned wheel scrolling because their deferred React offset reconciliation would race frame-by-frame writes; ordinary native regions still glide through `scrollTop`, and hidden-overflow virtual holders are driven through their wheel handler. This keeps nonvirtualized Select popups scrollable without bypassing the request-list virtualizer.
