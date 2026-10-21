@@ -232,6 +232,26 @@ var matchKindRank = map[string]int{
 // id. It is total, so the winner is stable across syncs. A name that only
 // resembles a listed model is not matched; Suggest offers it instead.
 func (c Catalog) MatchModel(model string) (Match, bool) {
+	return c.matchModel(model, firstPartyRank(model, firstPartyAuthors))
+}
+
+// firstPartyRank turns an ordered authority list for a model into the rank
+// function the match sort uses; a source ranks by its own namespaces.
+func firstPartyRank(model string, authorities func(string) []string) func(string) int {
+	officials := authorities(modelFamilyOf(model))
+	return func(author string) int {
+		for i, candidate := range officials {
+			if candidate == author {
+				return i
+			}
+		}
+		return len(officials)
+	}
+}
+
+// matchModel shares the match chain with the fallback source, which ranks by
+// models.dev namespaces instead of OpenRouter authors.
+func (c Catalog) matchModel(model string, officialRank func(string) int) (Match, bool) {
 	index := c.ensureIndex()
 	model = strings.TrimSpace(model)
 	if model == "" {
@@ -256,15 +276,6 @@ func (c Catalog) MatchModel(model string) (Match, bool) {
 	candidates = append(candidates, index.dated[NormalizeModelKey(stripDateSuffix(suffix))]...)
 	if len(candidates) == 0 {
 		return Match{}, false
-	}
-	officials := firstPartyAuthors(modelFamilyOf(model))
-	officialRank := func(author string) int {
-		for i, candidate := range officials {
-			if candidate == author {
-				return i
-			}
-		}
-		return len(officials)
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
 		left, right := candidates[i], candidates[j]

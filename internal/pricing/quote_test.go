@@ -205,14 +205,14 @@ func TestSelectTierPicksExactlyOne(t *testing.T) {
 	}
 }
 
-// A version written under the retired models.dev source stays priceable.
-func TestQuoteAcceptsLegacyModelsDevVersion(t *testing.T) {
+// A version written under the models.dev source — a legacy row or a fallback
+// price — stays priceable: rate validation ignores the source on purpose. The
+// write-path acceptance of the live fallback source is covered in
+// modelsdev_test.go.
+func TestQuoteAcceptsModelsDevVersion(t *testing.T) {
 	legacy := ModelPrice{Model: "m", PromptPricePer1M: 1, PriceMultiplier: 1, Source: SourceModelsDev}
 	if _, err := Quote(legacy, 1, Tokens{Input: 10}, 0, ""); err != nil {
-		t.Fatalf("legacy version refused: %v", err)
-	}
-	if err := legacy.ValidateWrite(); err == nil {
-		t.Fatal("a new write under the retired source was accepted")
+		t.Fatalf("models.dev version refused: %v", err)
 	}
 }
 

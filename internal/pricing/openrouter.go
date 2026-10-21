@@ -44,6 +44,13 @@ func (m UpstreamModel) IsAlias() bool { return strings.HasPrefix(m.ID, "~") }
 
 // PriceFor turns an upstream model into a price row for a CPA model.
 func (m UpstreamModel) PriceFor(model, matchKind string, multiplier float64, syncedAtMS int64) ModelPrice {
+	return m.priceFor(SourceOpenRouter, model, matchKind, multiplier, syncedAtMS)
+}
+
+// priceFor is PriceFor with the row's source chosen by the resolving catalog:
+// OpenRouter rows are primary, models.dev rows mark the fallback that priced
+// them.
+func (m UpstreamModel) priceFor(source, model, matchKind string, multiplier float64, syncedAtMS int64) ModelPrice {
 	if multiplier <= 0 {
 		multiplier = 1
 	}
@@ -52,7 +59,7 @@ func (m UpstreamModel) PriceFor(model, matchKind string, multiplier float64, syn
 	return ModelPrice{
 		Model: model, PromptPricePer1M: m.PromptPricePer1M, CompletionPer1M: m.CompletionPer1M,
 		CacheReadPer1M: m.CacheReadPer1M, CacheWritePer1M: m.CacheWritePer1M, PriceMultiplier: multiplier,
-		Tiers: tiers, Source: SourceOpenRouter, UpstreamID: m.ID, MatchKind: matchKind, SyncedAtMS: syncedAtMS,
+		Tiers: tiers, Source: source, UpstreamID: m.ID, MatchKind: matchKind, SyncedAtMS: syncedAtMS,
 	}
 }
 

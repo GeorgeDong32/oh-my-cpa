@@ -1,5 +1,7 @@
 // Package pricing keeps the per-model USD price book and computes request costs.
-// OpenRouter's public model list is the only automatic source. A price carries
+// OpenRouter's public model list is the primary automatic source, and
+// models.dev's first-party entries are the fallback for a model OpenRouter
+// lists nothing for (ADR 0103). A price carries
 // four rates per 1M tokens (prompt, completion, cache read, cache write), an
 // optional list of tiers (service tiers, long-context thresholds and time-of-day
 // windows)
@@ -38,9 +40,10 @@ type ModelPrice struct {
 	UpdatedAtMS      int64       `json:"updated_at_ms"`
 }
 
-// Source values for ModelPrice. SourceModelsDev only survives on rows and price
-// versions written before OpenRouter became the source: such rows stay priceable
-// until a sync replaces them, and new writes can never carry it.
+// Source values for ModelPrice. SourceModelsDev marks rows the fallback source
+// priced because OpenRouter listed nothing for the model, plus rows written
+// before OpenRouter became the source; the next sync that finds an OpenRouter
+// match replaces them.
 const (
 	SourceManual     = "manual"
 	SourceOpenRouter = "openrouter"
@@ -161,13 +164,13 @@ func (p *ModelPrice) ValidateRates() error {
 }
 
 // ValidateWrite is ValidateRates plus the rules a new write must satisfy: only
-// the two live sources may be written.
+// the live sources may be written.
 func (p *ModelPrice) ValidateWrite() error {
 	if err := p.ValidateRates(); err != nil {
 		return err
 	}
 	switch p.Source {
-	case SourceManual, SourceOpenRouter:
+	case SourceManual, SourceOpenRouter, SourceModelsDev:
 	default:
 		return fmt.Errorf("unknown price source %q", p.Source)
 	}
