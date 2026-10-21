@@ -149,6 +149,9 @@ func Seed(ctx context.Context, repo *repository.Repository, now time.Time) (Seed
 	if err := seedQuotaObservations(ctx, repo, now); err != nil {
 		return SeedStats{}, err
 	}
+	if err := seedSessions(ctx, repo, now); err != nil {
+		return SeedStats{}, err
+	}
 	stats.DurationMS = time.Since(started).Milliseconds()
 	return stats, nil
 }

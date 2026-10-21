@@ -53,6 +53,11 @@ func (h *Handler) SetPricing(manager PricingManager) {
 	h.pricing = manager
 }
 
+// SetSessionScanner attaches the session statistics scan trigger.
+func (h *Handler) SetSessionScanner(scanner SessionStatsScanner) {
+	h.sessionScanner = scanner
+}
+
 // The price book and the agent's pricing reads describe the same traffic windows.
 const (
 	pricingUsageWindow     = operations.PricingUsageWindow

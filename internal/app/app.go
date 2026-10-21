@@ -23,6 +23,7 @@ import (
 	"github.com/oh-my-cpa/oh-my-cpa/internal/pricing"
 	"github.com/oh-my-cpa/oh-my-cpa/internal/release"
 	"github.com/oh-my-cpa/oh-my-cpa/internal/repository"
+	"github.com/oh-my-cpa/oh-my-cpa/internal/sessionstats"
 	"github.com/oh-my-cpa/oh-my-cpa/internal/timezone"
 	"github.com/oh-my-cpa/oh-my-cpa/internal/updater"
 	"github.com/oh-my-cpa/oh-my-cpa/internal/usage/ingest"
@@ -159,6 +160,15 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 	pricingService.SetFallbackFetcher(pricing.NewModelsDevClient())
 	pricingService.SetModelLister(&cpaModelLister{repo: repo, cipher: cipher, cfg: cfg})
 	handler.SetPricing(pricingService)
+
+	// Local session statistics: a background scan of the coding clients'
+	// session files (docs/plans/session-stats.md). The loop touches only its
+	// own tables and never blocks anything else; demo mode runs none of it.
+	if !cfg.IsDemoMode {
+		sessionService := sessionstats.NewService(repo, os.Getenv("HOME"), logger)
+		handler.SetSessionScanner(sessionService)
+		go sessionService.Run(ctx)
+	}
 
 	pipeline, err := buildUsagePipeline(cfg, repo, handler, logger, cipher)
 	if err != nil {

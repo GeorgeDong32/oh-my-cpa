@@ -51,6 +51,9 @@ type Handler struct {
 	usage usagePipeline
 	// pricing serves model prices and the OpenRouter sync; nil until SetPricing.
 	pricing PricingManager
+	// sessionScanner triggers the local session statistics scan loop; nil
+	// when the loop is not running (demo mode).
+	sessionScanner SessionStatsScanner
 	// release observes both products' published versions; nil until SetRelease. Nil
 	// means the page reports "not checked yet" rather than failing.
 	release ReleaseManager
@@ -264,6 +267,10 @@ func (h *Handler) routes() chi.Router {
 				v1.Delete("/pricing/channels/{channel}", h.deletePricingChannel)
 				v1.Post("/pricing/sync", h.startPricingSync)
 				v1.Post("/pricing/models/{model}/backfill", h.backfillPricingModel)
+				v1.Get("/sessions/summary", h.getSessionsSummary)
+				v1.Get("/sessions/daily", h.getSessionsDaily)
+				v1.Get("/sessions/clients", h.getSessionsClients)
+				v1.Post("/sessions/rescan", h.triggerSessionsRescan)
 				v1.Put("/pricing/sync-schedule", h.updatePricingSyncSchedule)
 				v1.Get("/usage/events", h.listUsageEvents)
 				v1.Get("/usage/events/{id}", h.getUsageEvent)

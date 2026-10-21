@@ -23,6 +23,7 @@ import { ShellLoading } from './components/common/ShellLoading';
 
 import {
   UsageEventsPage,
+  SessionsPage,
   PricingPage,
   ProvidersPage,
   ApiKeysPage,
@@ -150,6 +151,7 @@ const AppRoutes: React.FC = () => {
         { path: 'logs', element: <LogsPage /> },
         { path: 'audit', element: <AuditPage /> },
         { path: 'usage/events', element: <UsageEventsPage /> },
+        { path: 'sessions', element: <SessionsPage /> },
         { path: 'pricing', element: <PricingPage /> },
         { path: 'config', element: <ConfigPage /> },
         { path: 'omc-settings', element: <OmcSettingsPage /> },

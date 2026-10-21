@@ -1,0 +1,160 @@
+/* Session statistics page. Visual tokens follow docs/design.md; the layout
+   is a dense stack of quiet tiles (ADR 0096's dense-and-quiet reading). */
+
+.sessions-page {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.sessions-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.sessions-tile {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface);
+}
+
+.sessions-tile-label {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.sessions-tile-value {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sessions-tile-caption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.sessions-comp {
+  display: flex;
+  height: 8px;
+  border-radius: var(--radius-document);
+  overflow: hidden;
+  background: var(--surface-muted);
+}
+
+.sessions-comp-part {
+  min-width: 2px;
+}
+
+.comp-input { background: var(--chart-1, var(--accent)); }
+.comp-output { background: var(--chart-2, var(--success)); }
+.comp-cache-read { background: var(--chart-3, var(--warn)); }
+.comp-cache-write { background: var(--chart-4, var(--danger)); }
+.comp-reasoning { background: var(--chart-5, var(--muted)); }
+
+.sessions-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sessions-section h2 {
+  font-size: var(--text-md);
+  font-weight: 600;
+  margin: 0;
+}
+
+.sessions-daily {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 120px;
+  padding: 8px 0;
+}
+
+.sessions-day {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+}
+
+.sessions-day-bar {
+  width: 100%;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: var(--accent);
+  opacity: 0.75;
+  min-height: 4px;
+}
+
+.sessions-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.sessions-table th,
+.sessions-table td {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+}
+
+.sessions-table th {
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.sessions-clients {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.sessions-client {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sessions-client-name {
+  font-weight: 600;
+  font-size: var(--text-md);
+}
+
+.sessions-range {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius-control);
+  padding: 4px 10px;
+  font-size: var(--text-sm);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.sessions-range.is-active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+@media (max-width: 720px) {
+  .sessions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sessions-daily {
+    height: 80px;
+  }
+}

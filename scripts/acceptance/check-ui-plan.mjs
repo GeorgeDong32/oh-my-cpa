@@ -76,6 +76,9 @@ const AGENT_SCENARIOS = ['agent', 'agent-external', 'agent-question', 'agent-liv
 const SCENARIO_PATHS = [
   { prefix: 'web/src/pages/agent/', scenarios: AGENT_SCENARIOS },
   { prefix: 'web/src/pages/playground/', scenarios: ['playground', 'playground-narrow', 'mobile-console'] },
+  // The sessions page: a standalone observability surface with no shared probe of its own; the
+  // mobile shell rule covers its responsive layout, and demo readiness covers its reads.
+  { prefix: 'web/src/pages/sessions/', scenarios: ['mobile-console'] },
   // The run protocol, stream reader and exports: the Agent runs on all of it, and the Playground
   // reads its stream and writes its export with the same modules.
   { prefix: 'web/src/agent/', scenarios: [...AGENT_SCENARIOS, 'playground', 'playground-narrow'] },

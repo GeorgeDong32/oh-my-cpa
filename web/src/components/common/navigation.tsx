@@ -6,6 +6,7 @@ import {
   CodeSandboxOutlined,
   ControlOutlined,
   DashboardOutlined,
+  DesktopOutlined,
   DollarOutlined,
   HistoryOutlined,
   InfoCircleOutlined,
@@ -59,6 +60,7 @@ export const STATIC_NAV_GROUPS: readonly NavGroup[] = [
     labelKey: 'nav.group.observe',
     items: [
       { key: '/usage/events', labelKey: 'nav.usage_events', icon: <HistoryOutlined /> },
+      { key: '/sessions', labelKey: 'nav.sessions', icon: <DesktopOutlined /> },
       { key: '/pricing', labelKey: 'nav.pricing', icon: <DollarOutlined /> },
       { key: '/logs', labelKey: 'nav.logs', icon: <ProfileOutlined /> },
       { key: '/audit', labelKey: 'nav.audit', icon: <AuditOutlined /> },

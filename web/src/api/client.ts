@@ -3,6 +3,7 @@ import type { ModelSquareDirectory } from '../types/modelSquare';
 import type { CustomIcon } from '../types/customIcons';
 import type { InstalledFont } from '../types/fonts';
 import { getAppConfig } from '../types/config';
+import type { SessionsClients, SessionsDaily, SessionsSummary } from '../types/sessions';
 import { isDemoMode } from '../types/demoMode';
 import {
   DiscoveredResource,
@@ -1234,6 +1235,22 @@ export const api = {
 
   async getPricingAttention(): Promise<PricingAttention> {
     return request<PricingAttention>('/pricing/attention', { method: 'GET' });
+  },
+
+  async getSessionsSummary(days: number, tz: string): Promise<SessionsSummary> {
+    return request<SessionsSummary>(`/sessions/summary?${new URLSearchParams({ days: String(days), tz })}`, { method: 'GET' });
+  },
+
+  async getSessionsDaily(days: number, tz: string): Promise<SessionsDaily> {
+    return request<SessionsDaily>(`/sessions/daily?${new URLSearchParams({ days: String(days), tz })}`, { method: 'GET' });
+  },
+
+  async getSessionsClients(): Promise<SessionsClients> {
+    return request<SessionsClients>('/sessions/clients', { method: 'GET' });
+  },
+
+  async startSessionsRescan(): Promise<{ started: boolean }> {
+    return request<{ started: boolean }>('/sessions/rescan', { method: 'POST' });
   },
 
   async getPricingCatalog(): Promise<{ models: UpstreamModel[] }> {

@@ -135,6 +135,9 @@ func demoExportCases() []demoExportCase {
 		{Name: "pricing", Path: "/api/v1/pricing"},
 		{Name: "pricing-attention", Path: "/api/v1/pricing/attention"},
 		{Name: "pricing-catalog", Path: "/api/v1/pricing/catalog"},
+		{Name: "sessions-summary", Path: "/api/v1/sessions/summary?days=30&tz=UTC"},
+		{Name: "sessions-daily", Path: "/api/v1/sessions/daily?days=30&tz=UTC"},
+		{Name: "sessions-clients", Path: "/api/v1/sessions/clients"},
 		{Name: "plugins", Path: "/api/v1/management/plugins"},
 		{Name: "plugins-settings", Path: "/api/v1/management/plugins/settings"},
 		// Each installed plugin's settings document, for the editor the list opens. The

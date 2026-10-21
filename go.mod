@@ -6,6 +6,7 @@ require (
 	github.com/go-chi/chi/v5 v5.2.4
 	github.com/google/jsonschema-go v0.4.2
 	github.com/google/uuid v1.6.0
+	github.com/klauspost/compress v1.20.3
 	github.com/modelcontextprotocol/go-sdk v1.4.1
 	github.com/tdewolff/parse/v2 v2.8.18
 	golang.org/x/image v0.45.0

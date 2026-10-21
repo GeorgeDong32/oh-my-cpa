@@ -1,0 +1,61 @@
+/** Local session statistics: client-side coding session usage read from the
+ * coding agents' own session files (docs/plans/session-stats.md). */
+
+export interface SessionTokenMix {
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  reasoning: number;
+}
+
+export interface SessionModelRow {
+  model: string;
+  clients: string;
+  tokens: number;
+  share: number;
+  cost_usd: number;
+  priced: boolean;
+}
+
+export interface SessionsSummary {
+  tokens: SessionTokenMix;
+  total_tokens: number;
+  cost_usd: number;
+  cost_source: string;
+  unpriced_tokens: number;
+  active_days: number;
+  sessions: number;
+  today?: SessionDay;
+  models?: SessionModelRow[];
+}
+
+export interface SessionDay {
+  date: string;
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  reasoning: number;
+  messages: number;
+  sessions: number;
+}
+
+export interface SessionsDaily {
+  days: SessionDay[];
+}
+
+export interface SessionClientRow {
+  client: string;
+  tokens: number;
+  sessions: number;
+  entries: number;
+  files: number;
+  unreadable: number;
+  oversized: number;
+  last_scan_ms: number;
+}
+
+export interface SessionsClients {
+  clients?: SessionClientRow[];
+}

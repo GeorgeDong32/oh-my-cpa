@@ -12,6 +12,9 @@ export const UsageEventsPage = React.lazy(loadUsageEventsPage);
 export const loadPricingPage = createPageLoader(() => import('./pages/pricing/PricingPage'), 'PricingPage');
 export const PricingPage = React.lazy(loadPricingPage);
 
+export const loadSessionsPage = createPageLoader(() => import('./pages/sessions/SessionsPage'), 'SessionsPage');
+export const SessionsPage = React.lazy(loadSessionsPage);
+
 export const loadProvidersPage = createPageLoader(() => import('./pages/ProvidersPage'), 'ProvidersPage');
 export const ProvidersPage = React.lazy(loadProvidersPage);
 

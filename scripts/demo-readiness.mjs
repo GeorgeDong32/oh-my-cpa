@@ -12,6 +12,7 @@ export const DEMO_ROUTES = [
   { path: '/logs', heading: '日志', reads: ['/management/logs/status', '/management/logs'], content: '.logs-page .log-line' },
   { path: '/audit', heading: '操作审计', reads: ['/management/audit/events', '/management/audit/summary'], content: '[data-testid="audit-entry"]' },
   { path: '/usage/events', heading: '请求记录', reads: ['/usage/events'], content: '.request-list' },
+  { path: '/sessions', heading: '会话统计', reads: ['/sessions/summary', '/sessions/daily', '/sessions/clients'], content: '.sessions-page .sessions-tile' },
   { path: '/pricing', heading: '费用与用量', reads: ['/pricing'], content: '[data-testid="pricing-model-list"]' },
   { path: '/config', heading: '配置面板', reads: ['/management/config'], content: '.config-workbench' },
   { path: '/omc-settings', heading: 'OMC 设置', reads: ['/preferences'], content: '.omc-settings-group' },
