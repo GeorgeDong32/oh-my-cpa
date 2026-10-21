@@ -178,10 +178,12 @@ func DecodeModelsDev(body []byte) ([]UpstreamModel, error) {
 				continue
 			}
 			family := entry.Family
-			if family == "" {
-				family = modelFamilyOf(id)
-			}
 			officials := firstPartyModelsDevProviders[family]
+			if officials == nil {
+				// Some sources declare a per-model family ("kimi-k3"); the
+				// name prefix recovers the maker's family.
+				officials = firstPartyModelsDevProviders[modelFamilyOf(id)]
+			}
 			if !slices.Contains(officials, provider) {
 				continue
 			}

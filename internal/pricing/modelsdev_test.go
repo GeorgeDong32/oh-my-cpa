@@ -33,7 +33,8 @@ const modelsDevPayload = `{
     "deepseek-v4-flash": {"family": "deepseek", "name": "cross-family hosting", "cost": {"input": 0.5, "output": 2}}
   }},
   "moonshotai": {"models": {
-    "kimi-k9": {"name": "Kimi K9", "cost": {"input": 1, "output": 4}}
+    "kimi-k9": {"name": "Kimi K9", "cost": {"input": 1, "output": 4}},
+    "kimi-k3": {"family": "kimi-k3", "name": "Kimi K3", "cost": {"input": 3, "output": 15}}
   }},
   "zai": {"models": {"glm-5.3": {"family": "glm", "name": "GLM", "cost": {"input": 0.6, "output": 2.2}}}},
   "zhipuai": {"models": {"glm-5.3": {"family": "glm", "name": "GLM", "cost": {"input": 0.44, "output": 2.09}}}}
@@ -82,6 +83,9 @@ func TestDecodeModelsDevKeepsFirstPartyEntries(t *testing.T) {
 	// A source-declared family absent from the entry falls back to the name prefix.
 	if _, ok := findModel(models, "moonshotai/kimi-k9"); !ok {
 		t.Fatalf("prefix-derived family entry missing: %+v", ids(models))
+	}
+	if k3, ok := findModel(models, "moonshotai/kimi-k3"); !ok || k3.PromptPricePer1M != 3 {
+		t.Fatalf("per-model declared family must not exclude the entry: %+v", k3)
 	}
 }
 
