@@ -2,7 +2,7 @@ import { ActionMenu } from '../components/common/ActionMenu';
 import { useTimeZone } from '../utils/TimeZoneProvider';
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Select, Tooltip } from 'antd';
+import { Button, Segmented, Select, Tooltip } from 'antd';
 import { AppstoreOutlined, HistoryOutlined, KeyOutlined, QuestionCircleOutlined, RightOutlined } from '../components/icons';
 import { PageHeader } from '../components/common/PageHeader';
 import { LoadingRegion, Placeholder } from '../components/common/Placeholder';
@@ -19,6 +19,7 @@ import { type DashboardTrendChartProps } from '../charts/DashboardTrendChart';
 import { maskKeyText } from '../utils/maskKey';
 import { resolveCacheRateReadout } from '../theme/cacheScale';
 import { useTokenDisplayStyle } from '../types/tokenDisplayContext';
+import { DEFAULT_DASH_RATE_UNIT, DASH_RATE_UNIT_PREFERENCE, convertTokenRate, parseDashRateUnit, type DashRateUnit } from '../types/dashRateUnit';
 import {
   formatTokenRate,
   formatTokens as formatTokensStyled,
@@ -149,6 +150,12 @@ export const DashboardPage: React.FC = () => {
   // The console's token unit style: one setting shared with the model panels and
   // the request records, so every token readout on this page follows it.
   const { style: tokenStyle } = useTokenDisplayStyle();
+  // The rate tile speaks per minute or per second; server-stored like the
+  // window, so the choice survives reloads and browsers.
+  const parseRateUnit = React.useRef(parseDashRateUnit).current;
+  const dashRate = usePreference<DashRateUnit>(DASH_RATE_UNIT_PREFERENCE, DEFAULT_DASH_RATE_UNIT, parseRateUnit);
+  const dashRateUnit = dashRate.value;
+  const setDashRateUnit = (next: DashRateUnit) => { void dashRate.set(next); };
   // The chosen window is the operator's working context, so it lives in the
   // database: a reload, a service restart and a container rebuild all drop
   // browser storage, and none of them should reset what they are looking at.
@@ -266,12 +273,15 @@ export const DashboardPage: React.FC = () => {
   }, [data?.window.bucket_ms]);
   const pickRequestRate = React.useCallback((point: DashboardSeriesPoint) => pickRequests(point) / bucketMinutes, [bucketMinutes]);
   const pickTokenRate = React.useCallback((point: DashboardSeriesPoint) => pickTokens(point) / bucketMinutes, [bucketMinutes]);
+  const pickTokenRatePerSec = React.useCallback((point: DashboardSeriesPoint) => pickTokens(point) / (bucketMinutes * 60), [bucketMinutes]);
   const formatRequests = React.useCallback((value: number) => `${formatCount(value)} ${t('dash.unit_requests')}`, [t]);
   const formatTokens = React.useCallback((value: number) => `${formatTokensStyled(value, tokenStyle)} ${t('dash.unit_tokens')}`, [t, tokenStyle]);
   const formatExactTokens = React.useCallback((value: number) => `${formatTokensFull(value)} ${t('dash.unit_tokens')}`, [t]);
   const formatRequestRate = React.useCallback((value: number) => `${value.toFixed(2)} ${t('dash.unit_requests_per_min')}`, [t]);
   const formatTokenRateLabel = React.useCallback((value: number) => `${formatTokenRate(value)} ${t('dash.unit_tokens_per_min')}`, [t]);
   const formatExactTokenRate = React.useCallback((value: number) => `${formatTokensFull(value)} ${t('dash.unit_tokens_per_min')}`, [t]);
+  const formatTokenRateLabelSec = React.useCallback((value: number) => `${formatTokenRate(value)} ${t('dash.unit_tokens_per_sec')}`, [t]);
+  const formatExactTokenRateSec = React.useCallback((value: number) => `${formatTokensFull(value)} ${t('dash.unit_tokens_per_sec')}`, [t]);
   // Refresh reaches the strip below as well as the tiles. The strip owns its own query
   // - its span is a fixed fifty-three weeks rather than this window - so invalidating it by
   // key prefix is what keeps one button meaning "re-read this page". Today's total in
@@ -447,12 +457,29 @@ export const DashboardPage: React.FC = () => {
             />
           </Panel>
         );
-      case 'tpm':
+      case 'tpm': {
+        const perSecond = dashRateUnit === 'tps';
+        const rateUnitKey = perSecond ? 'dash.unit_tokens_per_sec' : 'dash.unit_tokens_per_min';
+        const rate = data.metrics.tpm == null ? null : convertTokenRate(data.metrics.tpm, dashRateUnit);
         return (
           <Panel className="dashboard-tile">
-            <div className="tile-label">{t('dash.tpm')}</div>
-            <div className="tile-value is-small" title={data.metrics.tpm == null ? undefined : `${formatTokensFull(data.metrics.tpm)} ${t('dash.unit_tokens_per_min')}`}>
-              <RollingNumber readout={resolveTokenRateFlowReadout(data.metrics.tpm)} />
+            <div className="tile-label">
+              <span>{perSecond ? t('dash.tps') : t('dash.tpm')}</span>
+              <Segmented
+                size="small"
+                value={dashRateUnit}
+                options={[
+                  { value: 'tpm', label: t('dash.tpm') },
+                  { value: 'tps', label: t('dash.tps') },
+                ]}
+                onChange={(next) => setDashRateUnit(next as DashRateUnit)}
+                aria-label={t('dash.rate_unit')}
+                data-testid="dash-rate-unit-toggle"
+                style={{ marginLeft: 'auto' }}
+              />
+            </div>
+            <div className="tile-value is-small" title={rate == null ? undefined : `${formatTokensFull(rate)} ${t(rateUnitKey)}`}>
+              <RollingNumber readout={rate == null ? undefined : resolveTokenRateFlowReadout(rate)} />
             </div>
             <div className="tile-caption">
               <span>{t('dash.total_tokens')} <b title={formatTokensFull(data.tokens.total)}>{formatTokensStyled(data.tokens.total, tokenStyle)}</b></span>
@@ -462,15 +489,16 @@ export const DashboardPage: React.FC = () => {
                 reading rather than a restatement of Token total. */}
             <DashboardTrendChart
               points={data.tokens.series}
-              pick={pickTokenRate}
+              pick={perSecond ? pickTokenRatePerSec : pickTokenRate}
               tone="warn"
               height={44}
               label={formatTrendTime}
-              format={formatTokenRateLabel}
-              formatExact={formatExactTokenRate}
+              format={perSecond ? formatTokenRateLabelSec : formatTokenRateLabel}
+              formatExact={perSecond ? formatExactTokenRateSec : formatExactTokenRate}
             />
           </Panel>
         );
+      }
       case 'cache_rate':
         return (
           <Panel className="dashboard-tile">
