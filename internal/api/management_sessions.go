@@ -197,6 +197,11 @@ func estimateSessionCost(rows []sessionstats.AggregatedRow, prices []pricing.Mod
 			unpriced += tokens
 			continue
 		}
+		// Tiers are per-request assertions (prompt thresholds, service lanes,
+		// time windows); a 15-minute aggregate cannot decide them, so the
+		// estimate quotes base rates only (spec §5) — a tiered row must not
+		// leak its long-context rate onto a whole bucket.
+		price.Tiers = nil
 		breakdown, err := pricing.Quote(price, 1.0, pricing.Tokens{
 			Input:      row.Input + row.CacheRead + row.CacheWrite,
 			Output:     row.Output + row.Reasoning,
@@ -271,9 +276,9 @@ func (h *Handler) getSessionsSummary(writer http.ResponseWriter, request *http.R
 	for key, modelTotals := range models {
 		row := sessionModelRowDTO{Model: key.model, Clients: key.client, Tokens: modelTotals.total()}
 		row.Share = shareOf(row.Tokens, summary.TotalTokens)
+		row.Priced = pricedModel(row.Model, prices)
 		if nanos, _ := estimateSessionCost(modelRows[key], prices); nanos > 0 {
 			row.CostUSD = float64(nanos) / 1e9
-			row.Priced = true
 		}
 		summary.Models = append(summary.Models, row)
 	}
@@ -399,9 +404,9 @@ func (h *Handler) getSessionsModels(writer http.ResponseWriter, request *http.Re
 	for key, modelTotals := range models {
 		row := sessionModelRowDTO{Model: key.model, Clients: key.client, Tokens: modelTotals.total()}
 		row.Share = shareOf(row.Tokens, total)
+		row.Priced = pricedModel(row.Model, prices)
 		if nanos, _ := estimateSessionCost(modelRows[key], prices); nanos > 0 {
 			row.CostUSD = float64(nanos) / 1e9
-			row.Priced = true
 		}
 		response.Models = append(response.Models, row)
 	}
@@ -471,7 +476,9 @@ func distinctWindowSessions(ctx context.Context, h *Handler, zone *time.Location
 	if h.repo == nil {
 		return 0
 	}
-	from := time.Now().In(zone).AddDate(0, 0, -(days - 1))
+	// Same edge as the token window (now − days) so the sessions tile and its
+	// neighbouring tiles describe one window.
+	from := time.Now().AddDate(0, 0, -days)
 	fromBucket := sessionstats.Bucket15MS(from.UnixMilli())
 	row := h.repo.SQL().QueryRowContext(ctx, `SELECT COUNT(DISTINCT client || ':' || session_id)
 	 FROM session_activity WHERE bucket_15m >= ?`, fromBucket)
@@ -496,6 +503,17 @@ func sortSessionDays(days []sessionDayDTO) {
 			days[j], days[j-1] = days[j-1], days[j]
 		}
 	}
+}
+
+// pricedModel reports a book match regardless of the quoted amount: a free
+// model prices at $0 and is still priced, not unpriced.
+func pricedModel(model string, prices []pricing.ModelPrice) bool {
+	for _, price := range prices {
+		if price.Model == model {
+			return true
+		}
+	}
+	return false
 }
 
 func shareOf(part, total int64) float64 {

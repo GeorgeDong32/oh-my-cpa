@@ -57,10 +57,14 @@ func (p qwenParser) ParseFile(file string, mtimeMS int64, emit func(UnifiedEntry
 			continue
 		}
 		usage := line.Usage
+		// promptTokenCount is cache-inclusive (Gemini-family reporting), so
+		// the cached share splits out — same as the gemini parser — to keep
+		// the buckets mutually exclusive.
+		input, cached := subtractCachedOverlap(nonNeg(usage.PromptTokenCount), nonNeg(usage.CachedContentTokens))
 		tokens := TokenBreakdown{
-			Input:     nonNeg(usage.PromptTokenCount),
+			Input:     input,
 			Output:    nonNeg(usage.CandidatesTokenCount),
-			CacheRead: nonNeg(usage.CachedContentTokens),
+			CacheRead: cached,
 			Reasoning: nonNeg(usage.ThoughtsTokenCount),
 		}
 		if tokens.Input+tokens.Output+tokens.CacheRead+tokens.Reasoning == 0 {

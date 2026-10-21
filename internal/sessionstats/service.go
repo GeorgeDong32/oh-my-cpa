@@ -2,6 +2,7 @@ package sessionstats
 
 import (
 	"context"
+	"fmt"
 	"time"
 )
 
@@ -226,6 +227,12 @@ func (s *Service) scanClient(ctx context.Context, parser Parser) {
 			parseErr := parser.ParseFile(file, info.mtimeMS, func(entry UnifiedEntry) {
 				if entry.MessageCount == 0 {
 					entry.MessageCount = 1
+				}
+				if entry.DedupKey == "" {
+					// An empty key would otherwise merge every keyless entry in
+					// the file into one row; give each its own stable identity
+					// (the repository layer uses the same rule).
+					entry.DedupKey = fmt.Sprintf("%s:%s:%d", entry.Client, entry.SessionID, entry.TimestampMS)
 				}
 				if existing, ok := byKey[entry.DedupKey]; ok {
 					existing.Tokens.Input = maxInt64(existing.Tokens.Input, entry.Tokens.Input)

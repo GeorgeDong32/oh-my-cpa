@@ -42,8 +42,13 @@ func TestParseQwen(t *testing.T) {
 		t.Fatalf("entries: %+v", entries)
 	}
 	entry := entries[0]
-	if entry.Tokens.Input != 100 || entry.Tokens.Output != 50 || entry.Tokens.Reasoning != 10 || entry.Tokens.CacheRead != 20 {
+	// promptTokenCount is cache-inclusive: 100 − 20 cached = 80 uncached,
+	// the buckets mutually exclusive and additive.
+	if entry.Tokens.Input != 80 || entry.Tokens.Output != 50 || entry.Tokens.Reasoning != 10 || entry.Tokens.CacheRead != 20 {
 		t.Fatalf("tokens: %+v", entry.Tokens)
+	}
+	if entry.Tokens.Total() != 160 {
+		t.Fatalf("additive total: %d", entry.Tokens.Total())
 	}
 	if entry.SessionID != "s-1" || entry.ModelID != "qwen3-max" || entry.ProviderID != "qwen" {
 		t.Fatalf("identity: %+v", entry)
