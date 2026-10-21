@@ -1267,6 +1267,12 @@ export const api = {
     });
   },
 
+  async backfillPricingModel(model: string): Promise<{ backfilled: number; skipped: number }> {
+    return request<{ backfilled: number; skipped: number }>(`/pricing/models/${encodeURIComponent(model)}/backfill`, {
+      method: 'POST',
+    });
+  },
+
   async updatePricingChannel(channel: string, payload: { multiplier: number; note: string }): Promise<{ channel: PricingChannel }> {
     return request<{ channel: PricingChannel }>(`/pricing/channels/${encodeURIComponent(channel)}`, {
       method: 'PUT',

@@ -66,6 +66,7 @@ export const CostBreakdownView: React.FC<CostBreakdownViewProps> = ({ breakdown,
   const stored = nanosToUsd(breakdown.stored_nanos);
   return (
     <div className={styles.breakdown} data-testid="cost-breakdown">
+      {breakdown.status === 'backfilled' && <p className={styles['mode-hint']}>{t('cost.backfilled')}</p>}
       {(breakdown.status === 'invalid_price' || breakdown.invalid_reason) && (
         <Notice tone="warning" title={t('cost.invalid', { reason: breakdown.invalid_reason ?? '' })} />
       )}

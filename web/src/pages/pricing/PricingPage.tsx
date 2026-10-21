@@ -5,13 +5,14 @@ import { Button, Popover, Segmented, Select, Tooltip } from 'antd';
 import dayjs from '../../utils/time';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { EditOutlined, LinkOutlined, SyncOutlined } from '../../components/icons';
+import { EditOutlined, HistoryOutlined, LinkOutlined, SyncOutlined } from '../../components/icons';
 import { api, ApiError, describeError } from '../../api/client';
 import { useT, type TFunc } from '../../i18n';
 import { isDemoMode } from '../../types/demoMode';
 import { formatTimeAgo } from '../../utils/format';
 import { useIsPhoneViewport } from '../../hooks/useIsPhoneViewport';
 import { PageHeader } from '../../components/common/PageHeader';
+import { ConfirmAction } from '../../components/common/ConfirmAction';
 import { RefreshButton } from '../../components/common/RefreshButton';
 import { ResponsiveList } from '../../components/common/ResponsiveList';
 import { StatusLabel, type StatusTone } from '../../components/common/StatusLabel';
@@ -176,6 +177,17 @@ export const PricingPage: React.FC = () => {
       } else {
         toast.error(t('pricing.sync_failed', { msg: describeError(err) }));
       }
+    },
+  });
+
+  const backfillMutation = useMutation({
+    mutationFn: (model: string) => api.backfillPricingModel(model),
+    onSuccess: (result) => {
+      toast.success(t('pricing.backfill.done', { backfilled: result.backfilled, skipped: result.skipped }));
+      invalidate();
+    },
+    onError: (err) => {
+      toast.error(t('pricing.backfill.failed', { msg: describeError(err) }));
     },
   });
 
@@ -398,6 +410,25 @@ export const PricingPage: React.FC = () => {
               data-testid="pricing-row-edit"
             />
           </Tooltip>
+          {row.rowKind === 'priced' && (
+            <ConfirmAction
+              title={t('pricing.backfill')}
+              description={t('pricing.backfill.confirm')}
+              confirmLabel={t('pricing.backfill')}
+              isConfirming={backfillMutation.isPending}
+              onConfirm={() => backfillMutation.mutate(row.model)}
+            >
+              <Tooltip title={t('pricing.backfill')}>
+                <Button
+                  size="small"
+                  className="row-action-btn"
+                  icon={<HistoryOutlined />}
+                  aria-label={`${t('pricing.backfill')}: ${row.model}`}
+                  data-testid="pricing-row-backfill"
+                />
+              </Tooltip>
+            </ConfirmAction>
+          )}
           {row.targetChannel && <Button size="small" onClick={() => openEditor?.(row.model, { channel: row.targetChannel, channelLabel: row.channelLabel })} data-testid="pricing-channel-model-edit">
             {t('pricing.scope.channel')}
           </Button>}

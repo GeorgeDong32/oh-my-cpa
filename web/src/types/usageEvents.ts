@@ -82,7 +82,7 @@ export interface UsageEvent {
   has_request_log: boolean;
   /** Request-time locked USD cost; absent means no price was known at ingestion. */
   cost_usd?: number | null;
-  pricing_status?: 'priced' | 'unpriced' | 'legacy_unpriced' | 'invalid_price';
+  pricing_status?: 'priced' | 'unpriced' | 'legacy_unpriced' | 'invalid_price' | 'backfilled';
   price_version_id?: number | null;
 }
 

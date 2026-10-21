@@ -229,7 +229,7 @@ export interface ChannelVersion {
  * says whether re-running the lock from its versions agrees with it.
  */
 export interface RequestCostBreakdown {
-  status: 'priced' | 'unpriced' | 'legacy_unpriced' | 'invalid_price';
+  status: 'priced' | 'unpriced' | 'legacy_unpriced' | 'invalid_price' | 'backfilled';
   stored_nanos?: number;
   stored_tier?: number;
   /** The service tier the request was billed on, and whether the response or the request named it. */
