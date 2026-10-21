@@ -99,7 +99,7 @@ describe('sidebar visibility panel', () => {
     expect(titles).toEqual([
       'Dashboard', 'Agent', 'Playground', 'Model Square',
       'AI providers', 'OAuth management', 'Key management',
-      'Request Events', 'Cost & Usage', 'Logs', 'Audit trail',
+      'Request Events', 'Sessions', 'Cost & Usage', 'Logs', 'Audit trail',
       'Plugin management', 'Plugin store',
       'Config', 'OMC Settings', 'System Information',
     ]);

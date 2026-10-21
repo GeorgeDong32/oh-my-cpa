@@ -330,7 +330,15 @@ the 口径 difference from the gateway dashboard.
   (§4) — the SQL merge covers stable keys; tool_result session-scoped keys
   never merge across files by design.
 
-## 12. Recorded deviations (Batch 1 review)
+## 12. Recorded deviations
+
+- **fixtures live inline, not under testdata/**: §8 sketched sanitized
+  snapshots under `testdata/`; the shipped golden fixtures are inline
+  strings in `parsers_test.go`/`batch2_test.go`/`batch3_test.go`
+  (a canary test walks `testdata/` anyway, so nothing regresses there).
+  This is a test-placement choice, not a coverage gap.
+
+(Batch 1 review:)
 
 - **amp**: the ledger/message reconciliation matcher is simplified to
   ledger-first, unmatched message records counted — the upstream's
