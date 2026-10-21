@@ -1099,6 +1099,8 @@ export const MS: Readonly<Record<string, string>> = {
   "dash.unit_tokens": "token",
   "dash.unit_tokens_per_min": "token/min",
   "dash.tps": "TPS",
+  "dash.output_tps": "TPS Output",
+  "dash.output_tps_short": "TPS Output",
   "dash.unit_tokens_per_sec": "token/s",
   "dash.rate_unit": "Unit kadar",
   "dash.range.15m": "Langsung",

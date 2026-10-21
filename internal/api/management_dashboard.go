@@ -101,6 +101,10 @@ type dashboardSeriesPoint struct {
 	Requests int64 `json:"v"`
 	Failures int64 `json:"f"`
 	Tokens   int64 `json:"tokens"`
+	// OutputTokens is the bucket's output share, so the rate tile can read a
+	// generation throughput distinct from the total volume the token tile
+	// plots. Same wire family as Tokens.
+	OutputTokens int64 `json:"out"`
 	// CacheReadTokens and CostNanos are per-bucket, so the cache-rate and cost
 	// tiles can plot their own series instead of repeating the token volume.
 	// Nanos rather than a float keeps the wire value exact; the browser scales it.
@@ -459,6 +463,7 @@ func (h *Handler) queryDashboard(ctx context.Context, window dashboardWindow, ap
 		facts.tokens.Series = append(facts.tokens.Series, dashboardSeriesPoint{
 			TimeMS:          point.TimeMS,
 			Tokens:          point.Tokens,
+			OutputTokens:    point.OutputTokens,
 			CacheReadTokens: point.CacheReadTokens,
 			CostNanos:       point.CostNanos,
 		})
@@ -776,6 +781,7 @@ func fillDashboardBuckets(fromMS, toMS, bucketMS int64, buckets []repository.Usa
 		points[position].Requests += bucket.Requests
 		points[position].Failures += bucket.Failures
 		points[position].Tokens += bucket.TotalTokens
+		points[position].OutputTokens += bucket.OutputTokens
 		points[position].CacheReadTokens += bucket.CacheReadTokens
 	}
 	// Request costs are immutable per-event snapshots, so they are summed from a

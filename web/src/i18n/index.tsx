@@ -1315,6 +1315,8 @@ const DICT: Record<string, [string, string]> = {
   'dash.unit_tokens': ['tokens', 'tokens'],
   'dash.unit_tokens_per_min': ['tokens/分', 'tokens/min'],
   'dash.tps': ['TPS', 'TPS'],
+  'dash.output_tps': ['输出 TPS', 'Output TPS'],
+  'dash.output_tps_short': ['输出 TPS', 'Output TPS'],
   'dash.unit_tokens_per_sec': ['tokens/秒', 'tokens/s'],
   'dash.rate_unit': ['速率单位', 'Rate unit'],
   'dash.range.15m': ['实时', 'Live'],

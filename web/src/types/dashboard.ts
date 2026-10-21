@@ -19,6 +19,10 @@ export interface DashboardSeriesPoint {
   /** Failed requests in the bucket. */
   f?: number;
   tokens?: number;
+  /** Output tokens in the bucket, so the rate tile's per-second reading can be a
+   * generation throughput (outputs over window seconds) distinct from the total
+   * volume `tokens` carries. */
+  out?: number;
   /** Cache reads in the bucket, so the cache-rate tile can plot its own shape. */
   cache_read?: number;
   /** Request cost in nanos. Exact on the wire; the browser scales it. */

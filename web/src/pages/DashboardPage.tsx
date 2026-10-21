@@ -100,6 +100,7 @@ function resolveTileCostReadout(cost: number): RollingReadout {
 // Parent query status changes must not turn unchanged series into G2 revisions.
 function pickRequests(point: DashboardSeriesPoint): number { return point.v ?? 0; }
 function pickTokens(point: DashboardSeriesPoint): number { return point.tokens ?? 0; }
+function pickOutputTokens(point: DashboardSeriesPoint): number { return point.out ?? 0; }
 function pickCacheReads(point: DashboardSeriesPoint): number { return point.cache_read ?? 0; }
 function pickCost(point: DashboardSeriesPoint): number { return (point.cost_nanos ?? 0) / 1_000_000_000; }
 function formatTrendTime(timeMs: number): string { return dayjs(timeMs).format('MM-DD HH:mm'); }
@@ -271,9 +272,14 @@ export const DashboardPage: React.FC = () => {
     const ms = data?.window.bucket_ms ?? 0;
     return ms > 0 ? ms / 60_000 : 1;
   }, [data?.window.bucket_ms]);
+  // The whole window's span in seconds, denominator of the per-second rate.
+  const windowSeconds = React.useMemo(() => {
+    const span = (data?.window.to ?? 0) - (data?.window.from ?? 0);
+    return span > 0 ? span / 1000 : 0;
+  }, [data?.window.from, data?.window.to]);
   const pickRequestRate = React.useCallback((point: DashboardSeriesPoint) => pickRequests(point) / bucketMinutes, [bucketMinutes]);
   const pickTokenRate = React.useCallback((point: DashboardSeriesPoint) => pickTokens(point) / bucketMinutes, [bucketMinutes]);
-  const pickTokenRatePerSec = React.useCallback((point: DashboardSeriesPoint) => pickTokens(point) / (bucketMinutes * 60), [bucketMinutes]);
+  const pickOutputRatePerSec = React.useCallback((point: DashboardSeriesPoint) => pickOutputTokens(point) / (bucketMinutes * 60), [bucketMinutes]);
   const formatRequests = React.useCallback((value: number) => `${formatCount(value)} ${t('dash.unit_requests')}`, [t]);
   const formatTokens = React.useCallback((value: number) => `${formatTokensStyled(value, tokenStyle)} ${t('dash.unit_tokens')}`, [t, tokenStyle]);
   const formatExactTokens = React.useCallback((value: number) => `${formatTokensFull(value)} ${t('dash.unit_tokens')}`, [t]);
@@ -460,17 +466,22 @@ export const DashboardPage: React.FC = () => {
       case 'tpm': {
         const perSecond = dashRateUnit === 'tps';
         const rateUnitKey = perSecond ? 'dash.unit_tokens_per_sec' : 'dash.unit_tokens_per_min';
-        const rate = data.metrics.tpm == null ? null : convertTokenRate(data.metrics.tpm, dashRateUnit);
+        // Per second reads generation throughput: output tokens over the
+        // window's seconds, the multi-request average of the per-event t/s.
+        // Per minute stays the total-volume rate it always was.
+        const rate = perSecond
+          ? data.tokens.output == null || windowSeconds <= 0 ? null : data.tokens.output / windowSeconds
+          : data.metrics.tpm == null ? null : convertTokenRate(data.metrics.tpm, dashRateUnit);
         return (
           <Panel className="dashboard-tile">
             <div className="tile-label">
-              <span>{perSecond ? t('dash.tps') : t('dash.tpm')}</span>
+              <span>{perSecond ? t('dash.output_tps') : t('dash.tpm')}</span>
               <Segmented
                 size="small"
                 value={dashRateUnit}
                 options={[
                   { value: 'tpm', label: t('dash.tpm') },
-                  { value: 'tps', label: t('dash.tps') },
+                  { value: 'tps', label: t('dash.output_tps_short') },
                 ]}
                 onChange={(next) => setDashRateUnit(next as DashRateUnit)}
                 aria-label={t('dash.rate_unit')}
@@ -489,7 +500,7 @@ export const DashboardPage: React.FC = () => {
                 reading rather than a restatement of Token total. */}
             <DashboardTrendChart
               points={data.tokens.series}
-              pick={perSecond ? pickTokenRatePerSec : pickTokenRate}
+              pick={perSecond ? pickOutputRatePerSec : pickTokenRate}
               tone="warn"
               height={44}
               label={formatTrendTime}

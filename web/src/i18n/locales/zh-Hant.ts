@@ -1099,6 +1099,8 @@ export const ZH_HANT: Readonly<Record<string, string>> = {
   "dash.unit_tokens": "tokens",
   "dash.unit_tokens_per_min": "tokens/分",
   "dash.tps": "TPS",
+  "dash.output_tps": "輸出 TPS",
+  "dash.output_tps_short": "輸出 TPS",
   "dash.unit_tokens_per_sec": "tokens/秒",
   "dash.rate_unit": "速率單位",
   "dash.range.15m": "即時",
