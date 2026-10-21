@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/oh-my-cpa/oh-my-cpa/internal/pricing"
 	"github.com/oh-my-cpa/oh-my-cpa/internal/usage"
@@ -142,6 +143,119 @@ func lockUsagePrice(ctx context.Context, tx *sql.Tx, event usage.Event) (lockedP
 
 func eventTokens(input, output, cacheRead, cacheWrite int64) pricing.Tokens {
 	return pricing.Tokens{Input: input, Output: output, CacheRead: cacheRead, CacheWrite: cacheWrite}
+}
+
+// BackfillUsagePricing fills the cost of a model's stored unpriced requests
+// using the model's current price version — the rate the operator has recorded
+// for the model now, applied at each request's own timestamp so tiers and
+// time-of-day windows evaluate exactly as the ingest lock would have. The
+// channel multiplier is the one effective per request. Rows already carrying a
+// cost are never touched (idempotent); a row the Quote cannot price is
+// reported as skipped rather than guessed. The derived usage facts are cleared
+// and the aggregation checkpoint zeroed, so the rollup re-folds the new
+// costs. Backfilled rows land in the terminal 'backfilled' status (migration
+// 044), distinguishable forever from costs locked at ingestion.
+func (r *Repository) BackfillUsagePricing(ctx context.Context, model string) (backfilled int64, skipped int64, err error) {
+	if err := r.requirePricingSchema(ctx); err != nil {
+		return 0, 0, err
+	}
+	version, err := scanPriceVersion(r.SQL().QueryRowContext(ctx, priceVersionSelect+`
+ WHERE model = ? AND available = 1 ORDER BY effective_from_ms DESC, id DESC LIMIT 1`, model))
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, 0, fmt.Errorf("backfill %s: %w", model, ErrNotFound)
+	}
+	if err != nil {
+		return 0, 0, fmt.Errorf("read current price version: %w", err)
+	}
+	tx, err := r.SQL().BeginTx(ctx, nil)
+	if err != nil {
+		return 0, 0, fmt.Errorf("begin backfill: %w", err)
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, `SELECT id, provider, timestamp_ms, input_tokens, output_tokens,
+ cache_read_tokens, cache_creation_tokens, service_tier, response_service_tier
+ FROM usage_events
+ WHERE model = ? AND pricing_status IN ('unpriced', 'legacy_unpriced')
+   AND cost_nanos IS NULL AND price_version_id IS NULL`, model)
+	if err != nil {
+		return 0, 0, fmt.Errorf("read unpriced requests: %w", err)
+	}
+	type pending struct {
+		id                                  int64
+		cost, version, channelVersion, tier *int64
+	}
+	var fills []pending
+	for rows.Next() {
+		var id, timestampMS, input, output, cacheRead, cacheWrite int64
+		var provider, serviceTier, responseTier string
+		if err := rows.Scan(&id, &provider, &timestampMS, &input, &output, &cacheRead, &cacheWrite, &serviceTier, &responseTier); err != nil {
+			rows.Close()
+			return 0, 0, fmt.Errorf("scan unpriced request: %w", err)
+		}
+		multiplier := 1.0
+		var channelVersion *int64
+		if provider != "" {
+			channel, err := scanChannelVersion(tx.QueryRowContext(ctx, channelVersionSelect+`
+ WHERE channel = ? AND effective_from_ms <= ? ORDER BY effective_from_ms DESC, id DESC LIMIT 1`, provider, timestampMS))
+			switch {
+			case errors.Is(err, sql.ErrNoRows):
+			case err != nil:
+				rows.Close()
+				return 0, 0, fmt.Errorf("read channel multiplier: %w", err)
+			case channel.Available:
+				multiplier = channel.Multiplier
+				channelVersion = &channel.ID
+			}
+		}
+		serviceTierName, _ := pricing.BilledServiceTier(responseTier, serviceTier)
+		breakdown, err := pricing.Quote(version.Price.ModelPrice, multiplier,
+			eventTokens(input, output, cacheRead, cacheWrite), timestampMS, serviceTierName)
+		if err != nil {
+			skipped++
+			continue
+		}
+		fill := pending{id: id, cost: &breakdown.TotalNanos, version: &version.ID}
+		if breakdown.TierIndex != nil {
+			tier := int64(*breakdown.TierIndex)
+			fill.tier = &tier
+		}
+		fill.channelVersion = channelVersion
+		fills = append(fills, fill)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, 0, fmt.Errorf("iterate unpriced requests: %w", err)
+	}
+	rows.Close()
+	for _, fill := range fills {
+		result, err := tx.ExecContext(ctx, `UPDATE usage_events SET cost_nanos = ?, price_version_id = ?,
+ channel_version_id = ?, price_tier = ?, pricing_status = 'backfilled' WHERE id = ?`,
+			fill.cost, fill.version, fill.channelVersion, fill.tier, fill.id)
+		if err != nil {
+			return 0, 0, fmt.Errorf("backfill request %d: %w", fill.id, err)
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return 0, 0, fmt.Errorf("confirm backfill of request %d: %w", fill.id, err)
+		}
+		backfilled += affected
+	}
+	// The rollups are derived caches: clearing them and zeroing the watermark
+	// makes the aggregation worker re-fold every event, backfilled costs included.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM usage_facts_15m`); err != nil {
+		return 0, 0, fmt.Errorf("clear 15m facts: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM usage_facts_daily`); err != nil {
+		return 0, 0, fmt.Errorf("clear daily facts: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE usage_aggregation_checkpoints
+ SET last_usage_event_id = 0, stats_updated_at_ms = NULL, updated_at_ms = ?`, time.Now().UnixMilli()); err != nil {
+		return 0, 0, fmt.Errorf("zero aggregation checkpoints: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, 0, fmt.Errorf("commit backfill: %w", err)
+	}
+	return backfilled, skipped, nil
 }
 
 // RequestCostBreakdown explains one stored request cost. The stored amount is
