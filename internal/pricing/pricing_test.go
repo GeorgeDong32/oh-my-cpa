@@ -29,6 +29,10 @@ type fakeStore struct {
 	state         SyncState
 	stateKnown    bool
 	reviews       map[string]string
+	backfillModel string
+	backfilled    int64
+	backfillSkipped int64
+	backfillErr   error
 }
 
 func newFakeStore(models ...string) *fakeStore {
