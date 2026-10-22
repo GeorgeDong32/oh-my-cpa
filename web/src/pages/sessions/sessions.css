@@ -395,7 +395,17 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   margin-bottom: 12px;
+}
+
+/* The metric rides the heading — it re-denominates the chart and the cards
+   together — while the series split stays on the right. */
+.sessions-chart-head-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .sessions-chart-head h2 {

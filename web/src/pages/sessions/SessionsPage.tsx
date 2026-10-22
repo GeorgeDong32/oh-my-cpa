@@ -463,21 +463,23 @@ export const SessionsPage: React.FC = () => {
       {chartPoints.length > 0 && (
         <section className="sessions-section">
           <div className="sessions-chart-head">
-            <h2>{t('sessions.daily')}</h2>
+            <div className="sessions-chart-head-left">
+              <h2>{t('sessions.daily')}</h2>
+              <Segmented
+                options={[
+                  { label: t('sessions.metric.tokens'), value: 'tokens' },
+                  { label: t('sessions.metric.cost'), value: 'cost' },
+                ]}
+                value={metric}
+                onChange={(value) => setMetric(value as 'tokens' | 'cost')}
+                aria-label={t('sessions.metric.label')}
+              />
+            </div>
             <Segmented
               options={modeOptions}
               value={seriesMode}
               onChange={(value) => setSeriesMode(value as SessionsSeriesMode)}
               aria-label={t('sessions.chart.mode')}
-            />
-            <Segmented
-              options={[
-                { label: t('sessions.metric.tokens'), value: 'tokens' },
-                { label: t('sessions.metric.cost'), value: 'cost' },
-              ]}
-              value={metric}
-              onChange={(value) => setMetric(value as 'tokens' | 'cost')}
-              aria-label={t('sessions.metric.label')}
             />
           </div>
           <div
