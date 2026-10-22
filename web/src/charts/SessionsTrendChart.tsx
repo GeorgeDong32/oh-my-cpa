@@ -84,6 +84,44 @@ export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, 
           // column instead of a full-width slab.
           x: { paddingInner: 0.55, paddingOuter: 0.18 },
         }}
+        interaction={{
+          // The tooltip is configured on the *interaction*, not on the mark:
+          // G2 reads `render` from the interaction's options — a renderer in
+          // the mark's own `tooltip` spec is ignored and the library's default
+          // template prints bare series names instead of token counts (the
+          // exact bug this comment prevents from coming back).
+          tooltip: {
+            shared: true,
+            crosshairs: true,
+            render: (
+              _event: unknown,
+              context: { items?: Array<{ color?: string; value?: number | null; name?: string }>; title?: string },
+            ) => {
+              const byKey = new Map((context?.items ?? []).map((item) => [String(item.name ?? ''), item]));
+              const items = seriesNames
+                .slice()
+                .reverse()
+                .map((name) => {
+                  const item = byKey.get(name);
+                  const value = Number(item?.value ?? 0);
+                  return { name, color: item?.color ?? colorOf(name), value };
+                })
+                .filter((item) => item.value > 0);
+              if (items.length === 0) return '';
+              // The bucket arrives as the group's title — the date string itself,
+              // since the x field is a calendar day rather than an epoch.
+              return renderChartTooltip(
+                context?.title ?? '',
+                items.map((item) => ({
+                  name: item.name,
+                  color: item.color,
+                  value: formatTokensStyled(item.value, tokenStyle),
+                  exact: formatTokensFull(item.value),
+                })),
+              );
+            },
+          },
+        }}
         axis={{
           x: {
             labelFormatter: (value: string) => dayjs(value).format(labelFormat),
@@ -95,36 +133,6 @@ export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, 
             labelFormatter: (value: number) => formatTokensStyled(value, tokenStyle),
             labelFontFamily: currentFontStack('mono'),
             labelFontSize: 10,
-          },
-        }}
-        tooltip={{
-          shared: true,
-          crosshairs: true,
-          render: (
-            _event: unknown,
-            context: { items?: Array<{ color?: string; value?: number | null; name?: string }>; title?: string },
-          ) => {
-            const byKey = new Map((context?.items ?? []).map((item) => [String(item.name ?? ''), item]));
-            const items = seriesNames
-              .slice()
-              .reverse()
-              .map((name) => {
-                const item = byKey.get(name);
-                return { name, color: item?.color ?? colorOf(name), value: item?.value ?? 0 };
-              })
-              .filter((item) => item.value > 0);
-            if (items.length === 0) return '';
-            // The bucket arrives as the group's title - the date string itself,
-            // since the x field is a calendar day rather than an epoch.
-            return renderChartTooltip(
-              context?.title ?? '',
-              items.map((item) => ({
-                name: item.name,
-                color: item.color,
-                value: formatTokensStyled(item.value, tokenStyle),
-                exact: formatTokensFull(item.value),
-              })),
-            );
           },
         }}
       />
