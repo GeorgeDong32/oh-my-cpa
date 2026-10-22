@@ -163,11 +163,14 @@ export const SessionsPage: React.FC = () => {
     queryKey: [...SESSIONS_QUERY_KEYS.all, 'summary', rangeParam, tz],
     queryFn: () => api.getSessionsSummary(rangeParam, tz),
   });
+  // The today range answers in hourly buckets — a single day has no daily
+  // shape worth charting; every other range stays day-grained.
+  const chartBucket = range === 'today' ? 'hour' as const : undefined;
   const series = useQuery({
-    queryKey: [...SESSIONS_QUERY_KEYS.all, 'series', rangeParam, seriesMode, tz],
+    queryKey: [...SESSIONS_QUERY_KEYS.all, 'series', rangeParam, seriesMode, chartBucket ?? 'day', tz],
     queryFn: () =>
       seriesMode === 'total'
-        ? api.getSessionsDaily(rangeParam, tz).then((daily): SessionsSeriesPoint[] =>
+        ? api.getSessionsDaily(rangeParam, tz, chartBucket).then((daily): SessionsSeriesPoint[] =>
             (daily.days ?? []).map((day) => ({
               date: day.date,
               series: t('sessions.chart.total'),
@@ -175,7 +178,7 @@ export const SessionsPage: React.FC = () => {
             })),
           )
         : api
-            .getSessionsSeries(rangeParam, seriesMode, tz)
+            .getSessionsSeries(rangeParam, seriesMode, tz, chartBucket)
             .then((result): SessionsSeriesPoint[] => {
               const rows = (result.series ?? []).map((row) => ({
                 date: row.date,
@@ -365,7 +368,7 @@ export const SessionsPage: React.FC = () => {
           <div className="sessions-chart" data-testid="sessions-daily">
             {series.isError
               ? <LoadFailure title={t('sessions.daily')} onRetry={() => void series.refetch()} />
-              : <SessionsTrendChart points={chartPoints} />}
+              : <SessionsTrendChart points={chartPoints} granularity={range === 'today' ? 'hour' : 'day'} slider={range === 'all'} />}
           </div>
         </section>
       )}

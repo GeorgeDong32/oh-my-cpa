@@ -17,6 +17,10 @@ export interface SessionsTrendChartProps {
   /** One flat row per date per series; the total mode carries the single `total` series. */
   points: SessionsSeriesPoint[];
   height?: number;
+  /** Hourly buckets carry wall-clock hour keys; the axis labels switch to times. */
+  granularity?: 'day' | 'hour';
+  /** Show a draggable x slider, seeded to the most recent 30 buckets. */
+  slider?: boolean;
 }
 
 /** The remainder bucket's key: several minor series folded into one grey stack. */
@@ -38,6 +42,12 @@ export const SESSIONS_OTHER_SERIES = '__other__';
  * wear different hues, and the remainder stack is the one grey.
  */
 
+// The palette's own order pairs blue with emerald, which two-series stacked
+// columns struggle to tell apart. This permutation jumps hue at every step
+// while staying inside the theme's slots, so N series keep the theme's hues —
+// just assigned for maximum pairwise separation first.
+const SLOT_ORDER = [0, 4, 1, 3, 2, 5];
+
 // Approximates the plot width (~1050px inside the terminal-page column) to
 // turn an absolute column-width target into the band-relative paddingInner.
 const xPaddingInner = (points: number): number => {
@@ -47,7 +57,7 @@ const xPaddingInner = (points: number): number => {
   return Math.max(0.2, Math.min(0.55, 1 - column / band));
 };
 
-export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, height = 280 }) => {
+export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, height = 280, granularity = 'day', slider = false }) => {
   const { theme } = useTheme();
   const isReducedMotion = usePrefersReducedMotion();
   const animate = resolveChartAnimation(isReducedMotion);
@@ -64,15 +74,28 @@ export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, 
 
   const colorOf = React.useCallback(
     (name: string) =>
-      name === SESSIONS_OTHER_SERIES ? theme.palette.muted : seriesColor(theme.palette, seriesNames.indexOf(name)),
+      name === SESSIONS_OTHER_SERIES
+        ? theme.palette.muted
+        : seriesColor(theme.palette, SLOT_ORDER[seriesNames.indexOf(name) % SLOT_ORDER.length]),
     [seriesNames, theme.palette],
   );
 
   const labelFormat = React.useMemo(() => {
+    if (granularity === 'hour') return 'HH:mm';
     if (points.length < 2) return 'MM-DD';
     const span = dayjs(points[points.length - 1]?.date).diff(dayjs(points[0]?.date), 'day');
     return span > 92 ? 'YY-MM' : 'MM-DD';
-  }, [points]);
+  }, [points, granularity]);
+
+  // The slider seeds to the most recent ~30 buckets: an all-time window opens
+  // readable, and dragging the thumb walks back through history. Values are
+  // ratios of the domain, so the window start is (1 - 30/N).
+  const sliderSeed = React.useMemo(() => {
+    if (!slider) return undefined;
+    const dateCount = new Set(points.map((point) => point.date)).size;
+    if (dateCount <= 30) return undefined;
+    return [Math.max(0, 1 - 30 / dateCount), 1] as [number, number];
+  }, [points, slider]);
 
   const data = React.useMemo(() => points.map((point) => ({ ...point, value: point.tokens })), [points]);
 
@@ -88,6 +111,7 @@ export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, 
         animation={animate}
         plugins={plugins}
         onReady={onReady}
+        {...(sliderSeed ? { slider: { x: { values: sliderSeed } } } : {})}
         scale={{
           color: { range: seriesNames.map(colorOf) },
           // Padding keeps the column a column instead of a full-width slab.
@@ -98,6 +122,7 @@ export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, 
           x: { paddingInner: xPaddingInner(points.length), paddingOuter: 0.18 },
         }}
         interaction={{
+          ...(sliderSeed ? { sliderFilter: true } : {}),
           // The tooltip is configured on the *interaction*, not on the mark:
           // G2 reads `render` from the interaction's options — a renderer in
           // the mark's own `tooltip` spec is ignored and the library's default

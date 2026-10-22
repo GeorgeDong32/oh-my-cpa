@@ -143,11 +143,40 @@ func dayKey(bucketMS int64, zone *time.Location) string {
 	return time.UnixMilli(bucketMS).In(zone).Format("2006-01-02")
 }
 
+// sessionsHourlyOf reads the chart's bucket granularity: days but an hour.
+// It is only meaningful for the today range — a week of hourly columns is
+// 168 bars of noise — so anything else is rejected rather than silently
+// ignored.
+func sessionsHourlyOf(request *http.Request, window sessionsRange) (bool, string) {
+	switch strings.TrimSpace(request.URL.Query().Get("bucket")) {
+	case "", "day":
+		return false, ""
+	case "hour":
+		if !window.today {
+			return false, "hourly buckets are only available for the today range"
+		}
+		return true, ""
+	default:
+		return false, "bucket must be day or hour"
+	}
+}
+
+// bucketKey names a row's chart bucket: a calendar day, or for the today
+// range's hourly read, a wall-clock hour in the viewer's zone.
+func bucketKey(bucketMS int64, zone *time.Location, hourly bool) string {
+	if hourly {
+		local := time.UnixMilli(bucketMS).In(zone)
+		hourStart := time.Date(local.Year(), local.Month(), local.Day(), local.Hour(), 0, 0, 0, zone)
+		return hourStart.Format("2006-01-02 15:04")
+	}
+	return dayKey(bucketMS, zone)
+}
+
 // foldDaily buckets the UTC grid rows into local days.
-func foldDaily(rows []sessionstats.AggregatedRow, zone *time.Location) map[string]*sessionDayDTO {
+func foldDaily(rows []sessionstats.AggregatedRow, zone *time.Location, hourly bool) map[string]*sessionDayDTO {
 	days := map[string]*sessionDayDTO{}
 	for _, row := range rows {
-		key := dayKey(row.Bucket15MS, zone)
+		key := bucketKey(row.Bucket15MS, zone, hourly)
 		day := days[key]
 		if day == nil {
 			day = &sessionDayDTO{Date: key}
@@ -378,9 +407,9 @@ func (h *Handler) getSessionsSummary(writer http.ResponseWriter, request *http.R
 	}
 	summary.BiggestDay = biggest
 	sessionCounts, _ := reader.BucketSessionCounts(request.Context(), fromBucket)
-	perDaySessions := foldSessionCounts(sessionCounts, zone)
+	perDaySessions := foldSessionCounts(sessionCounts, zone, false)
 	today := time.Now().In(zone).Format("2006-01-02")
-	if day := foldDaily(rows, zone)[today]; day != nil {
+	if day := foldDaily(rows, zone, false)[today]; day != nil {
 		day.Sessions = perDaySessions[today]
 		if nanos, _ := estimateSessionCost(rowsForDay(rows, zone, today), prices); nanos > 0 {
 			day.CostUSD = float64(nanos) / 1e9
@@ -403,10 +432,10 @@ func rowsForDay(rows []sessionstats.AggregatedRow, zone *time.Location, date str
 
 // foldSessionCounts folds per-bucket distinct session counts into local days.
 // A session crossing midnight counts in each civil day it touched (spec §4).
-func foldSessionCounts(counts map[int64]int64, zone *time.Location) map[string]int64 {
+func foldSessionCounts(counts map[int64]int64, zone *time.Location, hourly bool) map[string]int64 {
 	days := map[string]int64{}
 	for bucket, count := range counts {
-		days[dayKey(bucket, zone)] += count
+		days[bucketKey(bucket, zone, hourly)] += count
 	}
 	return days
 }
@@ -426,6 +455,11 @@ func (h *Handler) getSessionsDaily(writer http.ResponseWriter, request *http.Req
 		writeError(writer, http.StatusBadRequest, daysErr)
 		return
 	}
+	hourly, bucketErr := sessionsHourlyOf(request, window)
+	if bucketErr != "" {
+		writeError(writer, http.StatusBadRequest, bucketErr)
+		return
+	}
 	fromBucket := window.fromBucket(time.Now(), zone)
 	rows, err := reader.SummaryRows(request.Context(), fromBucket)
 	if err != nil {
@@ -437,9 +471,9 @@ func (h *Handler) getSessionsDaily(writer http.ResponseWriter, request *http.Req
 		writeInternalError(writer, err)
 		return
 	}
-	perDaySessions := foldSessionCounts(sessionCounts, zone)
+	perDaySessions := foldSessionCounts(sessionCounts, zone, hourly)
 	response := sessionsDailyDTO{}
-	for date, day := range foldDaily(rows, zone) {
+	for date, day := range foldDaily(rows, zone, hourly) {
 		day.Date = date
 		day.Sessions = perDaySessions[date]
 		response.Days = append(response.Days, *day)
@@ -471,6 +505,11 @@ func (h *Handler) getSessionsSeries(writer http.ResponseWriter, request *http.Re
 		writeError(writer, http.StatusBadRequest, "split must be client or model")
 		return
 	}
+	hourly, bucketErr := sessionsHourlyOf(request, window)
+	if bucketErr != "" {
+		writeError(writer, http.StatusBadRequest, bucketErr)
+		return
+	}
 	fromBucket := window.fromBucket(time.Now(), zone)
 	rows, err := h.repo.BucketSeriesRows(request.Context(), fromBucket, split)
 	if err != nil {
@@ -489,7 +528,7 @@ func (h *Handler) getSessionsSeries(writer http.ResponseWriter, request *http.Re
 	}
 	grouped := map[seriesKey]*sessionDayDTO{}
 	for _, row := range rows {
-		date := dayKey(row.Bucket15MS, zone)
+		date := bucketKey(row.Bucket15MS, zone, hourly)
 		name := row.Client
 		if split == "model" {
 			name = row.Model
@@ -537,7 +576,7 @@ func (h *Handler) getSessionsSeries(writer http.ResponseWriter, request *http.Re
 			CacheWrite: day.CacheWrite, Reasoning: day.Reasoning,
 		}
 		row.Tokens = row.Input + row.Output + row.CacheRead + row.CacheWrite + row.Reasoning
-		if nanos, _ := estimateSessionCost(rowsForSeries(rows, split, key.name, key.date, zone), prices); nanos > 0 {
+		if nanos, _ := estimateSessionCost(rowsForSeries(rows, split, key.name, key.date, zone, hourly), prices); nanos > 0 {
 			row.CostUSD = float64(nanos) / 1e9
 		}
 		response.Series = append(response.Series, row)
@@ -545,10 +584,10 @@ func (h *Handler) getSessionsSeries(writer http.ResponseWriter, request *http.Re
 	writeJSON(writer, http.StatusOK, response)
 }
 
-func rowsForSeries(rows []sessionstats.AggregatedRow, split, name, date string, zone *time.Location) []sessionstats.AggregatedRow {
+func rowsForSeries(rows []sessionstats.AggregatedRow, split, name, date string, zone *time.Location, hourly bool) []sessionstats.AggregatedRow {
 	var filtered []sessionstats.AggregatedRow
 	for _, row := range rows {
-		if dayKey(row.Bucket15MS, zone) != date {
+		if bucketKey(row.Bucket15MS, zone, hourly) != date {
 			continue
 		}
 		if (split == "client" && row.Client == name) || (split == "model" && row.Model == name) {

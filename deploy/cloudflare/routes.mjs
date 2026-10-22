@@ -99,7 +99,7 @@ const FIXED_ROUTES = new Map([
   ['/api/v1/usage/events', 'usage-events'],
   ['/api/v1/usage/live', 'usage-live'],
   ['/api/v1/usage/routing', 'usage-routing'],
-  ['/api/v1/sessions/daily', 'sessions-daily'],
+  ['/api/v1/sessions/daily', (url) => `sessions-daily${url.searchParams.get('bucket') === 'hour' ? '-hour' : ''}`],
   ['/api/v1/sessions/models', 'sessions-models'],
   ['/api/v1/sessions/clients', 'sessions-clients'],
   // The session endpoint sits under `/api/auth`, NOT under `/api/v1`: the console
@@ -128,7 +128,7 @@ const PRESET_ROUTES = new Map([
   // the 7-day and all ranges read the 30-day capture (the synthetic history is
   // flat, so the shorter window is a prefix of it rather than different data).
   ['/api/v1/sessions/summary', (url) => `sessions-summary${url.searchParams.get('days') === 'today' ? '-today' : ''}`],
-  ['/api/v1/sessions/series', (url) => `sessions-series-${url.searchParams.get('split') === 'client' ? 'client' : 'model'}`],
+  ['/api/v1/sessions/series', (url) => `sessions-series-${url.searchParams.get('split') === 'client' ? 'client' : 'model'}${url.searchParams.get('bucket') === 'hour' ? '-hour' : ''}`],
   ['/api/v1/management/dashboard', (url) => `dashboard-${dashboardPresetOf(url)}`],
   ['/api/v1/management/dashboard/tail', (url) => `dashboard-tail-${dashboardPresetOf(url)}`],
   ['/api/v1/management/dashboard/providers', (url) => `dashboard-providers-${dashboardPresetOf(url)}`],

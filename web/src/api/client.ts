@@ -1241,12 +1241,16 @@ export const api = {
     return request<SessionsSummary>(`/sessions/summary?${new URLSearchParams({ days: String(days), tz })}`, { method: 'GET' });
   },
 
-  async getSessionsDaily(days: number | string, tz: string): Promise<SessionsDaily> {
-    return request<SessionsDaily>(`/sessions/daily?${new URLSearchParams({ days: String(days), tz })}`, { method: 'GET' });
+  async getSessionsDaily(days: number | string, tz: string, bucket?: 'hour'): Promise<SessionsDaily> {
+    const params = new URLSearchParams({ days: String(days), tz });
+    if (bucket) params.set('bucket', bucket);
+    return request<SessionsDaily>(`/sessions/daily?${params}`, { method: 'GET' });
   },
 
-  async getSessionsSeries(days: number | string, split: 'client' | 'model', tz: string): Promise<{ series?: import('../types/sessions').SessionsSeriesRow[] }> {
-    return request<import('../types/sessions').SessionsSeries>(`/sessions/series?${new URLSearchParams({ days: String(days), split, tz })}`, { method: 'GET' });
+  async getSessionsSeries(days: number | string, split: 'client' | 'model', tz: string, bucket?: 'hour'): Promise<{ series?: import('../types/sessions').SessionsSeriesRow[] }> {
+    const params = new URLSearchParams({ days: String(days), split, tz });
+    if (bucket) params.set('bucket', bucket);
+    return request<import('../types/sessions').SessionsSeries>(`/sessions/series?${params}`, { method: 'GET' });
   },
 
   async refreshSessions(): Promise<{ refreshed: boolean }> {

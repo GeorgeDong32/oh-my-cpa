@@ -1,6 +1,7 @@
 package api
 
 import (
+	"strings"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -142,5 +143,45 @@ func TestSessionsSeriesSplit(t *testing.T) {
 	response, _ := getJSON(t, client, base+"/omc/api/v1/sessions/series?days=30&split=nope&tz=UTC")
 	if response.StatusCode != http.StatusBadRequest {
 		t.Fatalf("invalid split: status %d", response.StatusCode)
+	}
+}
+
+// The today range can answer in hourly buckets: the 15-minute cache folds
+// into wall-clock hours of the viewer's zone, and every other range rejects
+// the granularity instead of ignoring it.
+func TestSessionsHourlyBuckets(t *testing.T) {
+	client, base, repo := startDashboardTestServer(t, nil)
+	// Two entries three hours apart today: the hourly read must separate them.
+	seedSessionRows(t, repo, "pi", "sess-1", "glm-5.3", 1)
+	seedSessionRows(t, repo, "pi", "sess-2", "glm-5.3", 4)
+	buckets, _ := repo.DirtyBuckets(context.Background())
+	if err := repo.FoldBucketCache(context.Background(), buckets); err != nil {
+		t.Fatal(err)
+	}
+	response, payload := getJSON(t, client, base+"/omc/api/v1/sessions/daily?days=today&bucket=hour&tz=UTC")
+	if response.StatusCode != 200 {
+		t.Fatalf("hourly daily: status %d body %s", response.StatusCode, payload)
+	}
+	body := decodeBody(t, payload)
+	days, _ := body["days"].([]any)
+	if len(days) < 2 {
+		t.Fatalf("hourly daily must split the day into hours, got %v", body)
+	}
+	first, _ := days[0].(map[string]any)
+	if date, _ := first["date"].(string); !strings.Contains(date, ":00") {
+		t.Fatalf("hourly dates must carry the wall-clock hour, got %q", date)
+	}
+	response, payload = getJSON(t, client, base+"/omc/api/v1/sessions/series?days=today&bucket=hour&split=client&tz=UTC")
+	if response.StatusCode != 200 {
+		t.Fatalf("hourly series: status %d body %s", response.StatusCode, payload)
+	}
+	// Any non-today range must refuse the granularity outright.
+	response, _ = getJSON(t, client, base+"/omc/api/v1/sessions/daily?days=30&bucket=hour&tz=UTC")
+	if response.StatusCode != 400 {
+		t.Fatalf("hourly outside today must be rejected, got status %d", response.StatusCode)
+	}
+	response, _ = getJSON(t, client, base+"/omc/api/v1/sessions/daily?days=today&bucket=week&tz=UTC")
+	if response.StatusCode != 400 {
+		t.Fatalf("unknown bucket must be rejected, got status %d", response.StatusCode)
 	}
 }

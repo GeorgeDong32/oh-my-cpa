@@ -138,8 +138,11 @@ func demoExportCases() []demoExportCase {
 		{Name: "sessions-summary", Path: "/api/v1/sessions/summary?days=30&tz=UTC"},
 		{Name: "sessions-summary-today", Path: "/api/v1/sessions/summary?days=today&tz=UTC"},
 		{Name: "sessions-daily", Path: "/api/v1/sessions/daily?days=30&tz=UTC"},
+		{Name: "sessions-daily-hour", Path: "/api/v1/sessions/daily?days=today&bucket=hour&tz=UTC"},
 		{Name: "sessions-series-model", Path: "/api/v1/sessions/series?days=30&split=model&tz=UTC"},
 		{Name: "sessions-series-client", Path: "/api/v1/sessions/series?days=30&split=client&tz=UTC"},
+		{Name: "sessions-series-model-hour", Path: "/api/v1/sessions/series?days=today&bucket=hour&split=model&tz=UTC"},
+		{Name: "sessions-series-client-hour", Path: "/api/v1/sessions/series?days=today&bucket=hour&split=client&tz=UTC"},
 		{Name: "sessions-models", Path: "/api/v1/sessions/models?days=30"},
 		{Name: "sessions-clients", Path: "/api/v1/sessions/clients"},
 		{Name: "plugins", Path: "/api/v1/management/plugins"},
@@ -855,6 +858,17 @@ func demoExportRouter(t *testing.T) (http.Handler, time.Time) {
 	// instant keeps it reproducible.
 	if _, err := demo.Seed(context.Background(), repo, demoExportReference); err != nil {
 		t.Fatalf("seed export fixture: %v", err)
+	}
+
+	// Production folds the bucket cache at the scan's tail before any read, and
+	// the seeded rows arrive as dirty buckets — without the fold the export
+	// captures zeros and the demo's charts serve emptiness as if it were data.
+	fold, err := repo.DirtyBuckets(context.Background())
+	if err != nil {
+		t.Fatalf("list dirty buckets: %v", err)
+	}
+	if err := repo.FoldBucketCache(context.Background(), fold); err != nil {
+		t.Fatalf("fold export buckets: %v", err)
 	}
 
 	// The fixture listens on loopback only, and it answers the gateway's own paths
