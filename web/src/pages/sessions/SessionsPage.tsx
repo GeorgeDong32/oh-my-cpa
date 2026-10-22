@@ -20,6 +20,8 @@ import {
 } from '../../types/sessionsRange';
 import { usePreference } from '../../hooks/usePreference';
 import { SessionsTrendChart } from '../../charts/SessionsTrendChart';
+import { ModelMark } from '../../components/ModelMark';
+import { ClientMark } from './ClientMark';
 import type { SessionDay, SessionModelRow, SessionsSeriesPoint, SessionTokenMix } from '../../types/sessions';
 import './sessions.css';
 
@@ -119,7 +121,7 @@ const ClientBreakdown: React.FC<{ models?: SessionModelRow[] }> = ({ models }) =
       {groups.map((group) => (
         <div key={group.client} className="sessions-break-client">
           <div className="sessions-break-client-head">
-            <span className="sessions-break-client-name">{group.client}</span>
+            <span className="sessions-break-client-name"><ClientMark client={group.client} />{group.client}</span>
             <span className="sessions-break-client-meta">
               <span>{group.messages} {t('sessions.messages')}</span>
               <span>{group.allPriced ? formatUsd(group.costUsd) : '—'}</span>
@@ -130,7 +132,7 @@ const ClientBreakdown: React.FC<{ models?: SessionModelRow[] }> = ({ models }) =
             const share = group.tokens > 0 ? row.tokens / group.tokens : 0;
             return (
               <div key={row.model} className="sessions-break-model">
-                <span className="sessions-break-model-name mono" title={row.model}>{row.model}</span>
+                <span className="sessions-break-model-name mono" title={row.model}><ModelMark model={row.model} size={13} />{row.model}</span>
                 <span className="sessions-break-model-bar" aria-hidden>
                   <span className="sessions-break-model-fill" style={{ width: `${Math.max(share * 100, 1.5)}%` }} />
                 </span>
@@ -160,13 +162,6 @@ export const SessionsPage: React.FC = () => {
   const summary = useQuery({
     queryKey: [...SESSIONS_QUERY_KEYS.all, 'summary', rangeParam, tz],
     queryFn: () => api.getSessionsSummary(rangeParam, tz),
-  });
-  // The Today card is its own capture: it stays on the viewer's calendar day
-  // no matter which history range the hero above is reading. For the today
-  // range react-query dedupes this with the summary query above.
-  const today = useQuery({
-    queryKey: [...SESSIONS_QUERY_KEYS.all, 'summary', 'today', tz],
-    queryFn: () => api.getSessionsSummary('today', tz),
   });
   const series = useQuery({
     queryKey: [...SESSIONS_QUERY_KEYS.all, 'series', rangeParam, seriesMode, tz],
@@ -236,13 +231,29 @@ export const SessionsPage: React.FC = () => {
 
   const data = summary.data;
   const mix = data?.tokens;
-  const todayData = range === 'today' ? data : today.data;
+  // The today card reads the summary itself: on the today range the window is
+  // the viewer's calendar day, so one capture answers both hero and card.
+  const todayData = range === 'today' ? data : undefined;
   const todayMix = todayData?.tokens;
 
   const chartPoints = React.useMemo(() => {
     const rows = series.data ?? [];
     return rows;
   }, [series.data]);
+
+  // Per-client window totals for the detected-clients grid: the headline
+  // number follows the selected range; files/entries/last-scan stay lifetime
+  // facts about what sits on disk.
+  const windowByClient = React.useMemo(() => {
+    const totals = new Map<string, { tokens: number; messages: number }>();
+    for (const row of data?.models ?? []) {
+      const current = totals.get(row.clients) ?? { tokens: 0, messages: 0 };
+      current.tokens += row.tokens;
+      current.messages += row.messages;
+      totals.set(row.clients, current);
+    }
+    return totals;
+  }, [data?.models]);
 
   const rangeOptions = [
     { label: t('sessions.range.today'), value: 'today' },
@@ -356,31 +367,35 @@ export const SessionsPage: React.FC = () => {
               ? <LoadFailure title={t('sessions.daily')} onRetry={() => void series.refetch()} />
               : <SessionsTrendChart points={chartPoints} />}
           </div>
-          <p className="sessions-horizon">{t('sessions.horizon')}</p>
         </section>
       )}
-      {data && data.models && data.models.length > 0 && (
+      {/* The today range's breakdown IS the today card's; repeating it as a
+          section would print the same cards twice on one screen. */}
+      {range !== 'today' && data && data.models && data.models.length > 0 && (
         <section className="sessions-section">
           <h2>{t('sessions.breakdown')}</h2>
           <ClientBreakdown models={data.models} />
         </section>
       )}
-      {clients.data && clients.data.clients && clients.data.clients.length > 0 && (
+      {range !== 'today' && clients.data && clients.data.clients && clients.data.clients.length > 0 && (
         <section className="sessions-section">
           <h2>{t('sessions.clients')}</h2>
           <div className="sessions-grid">
-            {clients.data.clients.map((client) => (
-              <div key={client.client} className="sessions-tile sessions-client">
-                <div className="sessions-tile-label mono">{client.client}</div>
-                <div className="sessions-tile-value">{fmtTokens(client.tokens)}</div>
-                <div className="sessions-tile-caption">
-                  <span>{t('sessions.client.files')} {client.files}</span>
-                  <span>{t('sessions.client.entries')} {client.entries}</span>
-                  {client.sessions > 0 && <span>{t('sessions.sessions')} {client.sessions}</span>}
+            {clients.data.clients.map((client) => {
+              const stat = windowByClient.get(client.client);
+              return (
+                <div key={client.client} className="sessions-tile sessions-client">
+                  <div className="sessions-tile-label mono sessions-client-label"><ClientMark client={client.client} />{client.client}</div>
+                  <div className="sessions-tile-value">{fmtTokens(stat?.tokens ?? 0)}</div>
+                  <div className="sessions-tile-caption">
+                    {stat && <span>{t('sessions.messages')} {stat.messages}</span>}
+                    <span>{t('sessions.client.files')} {client.files}</span>
+                    <span>{t('sessions.client.entries')} {client.entries}</span>
+                  </div>
+                  {client.last_scan_ms > 0 && <div className="sessions-tile-caption">{t('sessions.client.last_scan')} {new Date(client.last_scan_ms).toLocaleString()}</div>}
                 </div>
-                {client.last_scan_ms > 0 && <div className="sessions-tile-caption">{t('sessions.client.last_scan')} {new Date(client.last_scan_ms).toLocaleString()}</div>}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}

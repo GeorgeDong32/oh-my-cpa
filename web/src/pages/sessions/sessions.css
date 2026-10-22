@@ -267,6 +267,9 @@
 }
 
 .sessions-break-client-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-weight: 600;
   font-size: var(--text-md);
 }
@@ -295,6 +298,10 @@
 }
 
 .sessions-break-model-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
   color: var(--muted);
   font-size: var(--text-sm);
   overflow: hidden;
@@ -368,4 +375,10 @@
   .sessions-today {
     padding: 12px 14px;
   }
+}
+
+.sessions-client-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }

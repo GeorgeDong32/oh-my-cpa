@@ -724,7 +724,6 @@ export const MS: Readonly<Record<string, string>> = {
   "sessions.today": "Hari ini",
   "sessions.messages": "Mesej",
   "sessions.daily": "Penggunaan harian",
-  "sessions.horizon": "Sejarah mengikut tempoh simpan fail sumber; hari awal hilang apabila klien memangkas.",
   "sessions.models": "Model",
   "sessions.breakdown": "Breakdown",
   "sessions.clients": "Klien dikesan",

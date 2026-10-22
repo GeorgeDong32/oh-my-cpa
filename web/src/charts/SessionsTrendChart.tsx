@@ -37,6 +37,16 @@ export const SESSIONS_OTHER_SERIES = '__other__';
  * buys with seriesDomainKey — so a series' column and its tooltip row cannot
  * wear different hues, and the remainder stack is the one grey.
  */
+
+// Approximates the plot width (~1050px inside the terminal-page column) to
+// turn an absolute column-width target into the band-relative paddingInner.
+const xPaddingInner = (points: number): number => {
+  if (points <= 1) return 0.93;
+  const band = 1050 / points;
+  const column = Math.min(72, band * 0.55);
+  return Math.max(0.2, Math.min(0.55, 1 - column / band));
+};
+
 export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, height = 280 }) => {
   const { theme } = useTheme();
   const isReducedMotion = usePrefersReducedMotion();
@@ -80,9 +90,12 @@ export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, 
         onReady={onReady}
         scale={{
           color: { range: seriesNames.map(colorOf) },
-          // A single-day window paints one band; padding keeps the column a
-          // column instead of a full-width slab.
-          x: { paddingInner: 0.55, paddingOuter: 0.18 },
+          // Padding keeps the column a column instead of a full-width slab.
+          // The fraction is derived from the point count because paddingInner
+          // is relative to the band: one band spanning the plot would still
+          // paint a 45%-wide slab at a fixed 0.55, so the target is an
+          // absolute ~72px column capped by the band's own 55%.
+          x: { paddingInner: xPaddingInner(points.length), paddingOuter: 0.18 },
         }}
         interaction={{
           // The tooltip is configured on the *interaction*, not on the mark:

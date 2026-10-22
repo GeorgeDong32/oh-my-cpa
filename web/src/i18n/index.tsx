@@ -889,7 +889,6 @@ const DICT: Record<string, [string, string]> = {
   'sessions.today': ['今日', 'Today'],
   'sessions.messages': ['消息', 'Messages'],
   'sessions.daily': ['每日用量', 'Daily usage'],
-  'sessions.horizon': ['历史跟随源文件保留期；客户端清理后早期天数自然消失。', 'History follows the source files the clients keep; days age out when they prune.'],
   'sessions.models': ['模型', 'Models'],
   'sessions.clients': ['检测到的客户端', 'Detected clients'],
   'sessions.col.model': ['模型', 'Model'],

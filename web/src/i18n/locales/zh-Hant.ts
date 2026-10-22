@@ -724,7 +724,6 @@ export const ZH_HANT: Readonly<Record<string, string>> = {
   "sessions.today": "今日",
   "sessions.messages": "訊息",
   "sessions.daily": "每日用量",
-  "sessions.horizon": "歷史跟隨源檔案保留期；客戶端清理後早期天數自然消失。",
   "sessions.models": "模型",
   "sessions.breakdown": "構成",
   "sessions.clients": "偵測到的客戶端",
