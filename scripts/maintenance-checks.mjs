@@ -14,7 +14,11 @@ export const MAINTENANCE_CHECKS = {
     ['go',['test','./internal/security','-run=^$','-fuzz=^FuzzRedactJSONPreservesShapeAndRemovesKnownSecrets$','-fuzztime=10s','-parallel=2']],
     ['go',['test','./internal/pricing','-run=^$','-fuzz=^FuzzQuoteLegacyParity$','-fuzztime=10s','-parallel=2']],
   ],
-  advisories: [['pnpm',['audit','--json']],['go',['run','golang.org/x/vuln/cmd/govulncheck@v1.8.0','-json','./...']]],
+  // govulncheck is pinned, not @latest: a future tool release must never be
+  // able to break or silently alter this gate. The pin advances deliberately —
+  // v1.8.0 reported PASS across October 2026 while v1.9.0's database flagged
+  // eight reachable advisories in the shipped binary (x/net, chi RealIP).
+  advisories: [['pnpm',['audit','--json']],['go',['run','golang.org/x/vuln/cmd/govulncheck@v1.9.0','-json','./...']]],
 };
 export function runMaintenanceChecks(mode, execute = spawnSync, outputDirectory = 'tmp/maintenance', { reportTriage = reportAdvisoryTriage } = {}) {
   if (!MAINTENANCE_CHECKS[mode]) throw new Error(`Unknown maintenance mode: ${mode}`);
