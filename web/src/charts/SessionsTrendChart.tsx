@@ -60,7 +60,7 @@ const xPaddingInner = (points: number): number => {
 };
 
 export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, height = 280, granularity = 'day', metric = 'tokens' }) => {
-  const { theme } = useTheme();
+  const { theme, themeMode } = useTheme();
   const isReducedMotion = usePrefersReducedMotion();
   const animate = resolveChartAnimation(isReducedMotion);
   const { style: tokenStyle } = useTokenDisplayStyle();
@@ -105,6 +105,12 @@ export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, 
         animation={animate}
         plugins={plugins}
         onReady={onReady}
+        theme={{
+          // The tooltip container and crosshair are the *library's* ink: without
+          // the mode name, G2's default light theme paints a white tooltip card
+          // onto a dark page.
+          type: themeMode,
+        }}
         scale={{
           color: { range: seriesNames.map(colorOf) },
           // Padding keeps the column a column instead of a full-width slab.

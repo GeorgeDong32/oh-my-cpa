@@ -47,7 +47,7 @@ export const ModelUsageDonut = React.memo<ModelUsageDonutProps>(({
   foldedLabel,
   tokenUnitLabel,
 }) => {
-  const { theme } = useTheme();
+  const { theme, themeMode } = useTheme();
   const isReducedMotion = usePrefersReducedMotion();
   const { plugins, onReady } = useChartPlugins();
   const animate = resolveChartAnimation(isReducedMotion);
@@ -131,7 +131,12 @@ export const ModelUsageDonut = React.memo<ModelUsageDonutProps>(({
               // A ring with no axes: the coordinate is theta, so an axis would be a line through the middle
               // of the drawing.
               axis={false}
-              theme={{ view: { viewFill: 'transparent' } }}
+              theme={{
+                // Without the mode name the library's light theme paints the
+                // tooltip card white onto a dark page.
+                type: themeMode,
+                view: { viewFill: 'transparent' },
+              }}
               padding={0}
               // The readout is configured on the interaction - see the trend's note for why - because the
               // library's own template is a light sans-serif panel that does not belong on this console.
