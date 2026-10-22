@@ -275,12 +275,10 @@ func (h *Handler) sessionsReader(writer http.ResponseWriter, request *http.Reque
 // the quotes — and a whole-history read costs one Quote per model instead of
 // one per cache row.
 func estimateSessionCost(rows []sessionstats.AggregatedRow, prices []pricing.ModelPrice) (costNanos int64, unpriced int64) {
-	book := map[string]pricing.ModelPrice{}
-	for _, price := range prices {
-		book[price.Model] = price
-	}
+	book := newSessionBookIndex(prices)
 	type modelTotals struct {
 		input, output, cacheRead, cacheWrite int64
+		tokens                               int64
 		price                                pricing.ModelPrice
 		priced                               bool
 	}
@@ -293,7 +291,7 @@ func estimateSessionCost(rows []sessionstats.AggregatedRow, prices []pricing.Mod
 		total := totals[row.Model]
 		if total == nil {
 			total = &modelTotals{}
-			price, ok := book[row.Model]
+			price, ok := book.lookup(row.Model)
 			if ok {
 				// Tiers are per-request assertions (prompt thresholds, service
 				// lanes, time windows); an aggregate cannot decide them, so the
@@ -303,20 +301,21 @@ func estimateSessionCost(rows []sessionstats.AggregatedRow, prices []pricing.Mod
 			}
 			totals[row.Model] = total
 		}
-		// Unpriced models accumulate too — the unpriced share counts their
-		// exact tokens even though nothing quotes them.
+		// Quote's contract: Input is cache-inclusive — the quote itself
+		// subtracts the cache fields before applying the prompt rate — and
+		// Reasoning rides the completion channel.
 		total.input += row.Input + row.CacheRead + row.CacheWrite
 		total.output += row.Output + row.Reasoning
+		// The unpriced share counts a model's tokens exactly once; it cannot
+		// be read back out of the quote channels (input carries the cache
+		// fields twice), so the token total gets its own accumulator.
+		total.tokens += row.Input + row.Output + row.CacheRead + row.CacheWrite + row.Reasoning
 		total.cacheRead += row.CacheRead
 		total.cacheWrite += row.CacheWrite
 	}
 	for _, total := range totals {
-		rowTokens := sessionstats.TokenBreakdown{
-			Input: total.input, Output: total.output,
-			CacheRead: total.cacheRead, CacheWrite: total.cacheWrite,
-		}
 		if !total.priced {
-			unpriced += rowTokens.Total()
+			unpriced += total.tokens
 			continue
 		}
 		breakdown, err := pricing.Quote(total.price, 1.0, pricing.Tokens{
@@ -324,7 +323,7 @@ func estimateSessionCost(rows []sessionstats.AggregatedRow, prices []pricing.Mod
 			CacheRead: total.cacheRead, CacheWrite: total.cacheWrite,
 		}, 0, "")
 		if err != nil {
-			unpriced += rowTokens.Total()
+			unpriced += total.tokens
 			continue
 		}
 		costNanos += breakdown.TotalNanos
@@ -769,12 +768,94 @@ func sortSessionDays(days []sessionDayDTO) {
 // pricedModel reports a book match regardless of the quoted amount: a free
 // model prices at $0 and is still priced, not unpriced.
 func pricedModel(model string, prices []pricing.ModelPrice) bool {
+	_, ok := newSessionBookIndex(prices).lookup(model)
+	return ok
+}
+
+// sessionBookIndex answers the sessions estimator's lookups. The names in
+// session files are the clients' own spellings ("Minimax/MiniMax-M3",
+// "gpt-5.6-sol", "bailian/deepseek-v4-flash-0731"), while the price book
+// stores the gateway's catalog names ("MiniMax-M3", "codex/gpt-5.6-sol") —
+// an exact-only match calls the same model unpriced because two namespaces
+// disagree on spelling. The index therefore also keys a normalised form:
+// lowercased, channel/author prefix dropped, trailing six-digit snapshot
+// date removed, matched against both the row's name and its upstream id.
+// A name with no row under any of these — gpt-5.5 has no book row at all —
+// stays unpriced rather than borrowing a neighbour's rates.
+type sessionBookIndex struct {
+	exact map[string]pricing.ModelPrice
+	slug  map[string]pricing.ModelPrice
+}
+
+func newSessionBookIndex(prices []pricing.ModelPrice) sessionBookIndex {
+	index := sessionBookIndex{exact: map[string]pricing.ModelPrice{}, slug: map[string]pricing.ModelPrice{}}
 	for _, price := range prices {
-		if price.Model == model {
-			return true
+		index.exact[price.Model] = price
+		for _, key := range []string{price.Model, price.UpstreamID} {
+			if key == "" {
+				continue
+			}
+			s := sessionModelSlug(key)
+			if _, exists := index.slug[s]; !exists {
+				index.slug[s] = price
+			}
 		}
 	}
-	return false
+	return index
+}
+
+func (i sessionBookIndex) lookup(model string) (pricing.ModelPrice, bool) {
+	if price, ok := i.exact[model]; ok {
+		return price, true
+	}
+	price, ok := i.slug[sessionModelSlug(model)]
+	return price, ok
+}
+
+// sessionModelSlug normalises one model identity for the fallback match.
+func sessionModelSlug(model string) string {
+	slug := strings.ToLower(strings.TrimSpace(model))
+	if i := strings.IndexByte(slug, '/'); i >= 0 {
+		slug = slug[i+1:]
+	}
+	if stripped, ok := stripDateSnapshot(slug); ok {
+		slug = stripped
+	}
+	return slug
+}
+
+// stripDateSnapshot removes a trailing date-snapshot suffix ("…-0731",
+// "…-2507", "…-260428", "…-20240620"): providers re-publish the same model
+// under dated names at the same rates. The digits must sit behind a dash and
+// decode to a month at one of the usual positions, so "qwen3-32b" survives.
+func stripDateSnapshot(slug string) (string, bool) {
+	i := strings.LastIndexByte(slug, '-')
+	if i <= 0 {
+		return slug, false
+	}
+	tail := slug[i+1:]
+	if len(tail) < 4 || len(tail) > 8 || (len(tail)%2) != 0 {
+		return slug, false
+	}
+	for _, r := range tail {
+		if r < '0' || r > '9' {
+			return slug, false
+		}
+	}
+	monthOK := func(pair string) bool { return pair >= "01" && pair <= "12" }
+	dateLike := false
+	switch len(tail) {
+	case 4: // MMDD or YYMM
+		dateLike = monthOK(tail[:2]) || monthOK(tail[2:])
+	case 6: // YYMMDD
+		dateLike = monthOK(tail[2:4])
+	case 8: // YYYYMMDD
+		dateLike = monthOK(tail[4:6])
+	}
+	if !dateLike {
+		return slug, false
+	}
+	return slug[:i], true
 }
 
 func shareOf(part, total int64) float64 {

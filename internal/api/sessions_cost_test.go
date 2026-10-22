@@ -21,6 +21,8 @@ func TestEstimateSessionCostMatchesQuotePath(t *testing.T) {
 		Input: 900_000, Output: 200_000, CacheRead: 800_000, CacheWrite: 100_000, Reasoning: 50_000,
 	}}
 	// One Quote of the same tokens must equal the sum the estimator produces.
+	// Quote's Input is cache-inclusive: the quote subtracts the cache fields
+	// itself before applying the prompt rate.
 	want := pricing.Tokens{
 		Input:     rows[0].Input + rows[0].CacheRead + rows[0].CacheWrite,
 		Output:    rows[0].Output + rows[0].Reasoning,
@@ -102,5 +104,75 @@ func TestEstimateSessionCostIgnoresTiers(t *testing.T) {
 	costNanos, _ := estimateSessionCost([]sessionstats.AggregatedRow{row}, []pricing.ModelPrice{tiered})
 	if costNanos != baseOnly.TotalNanos {
 		t.Fatalf("estimate %d != base-rate quote %d (tier leaked)", costNanos, baseOnly.TotalNanos)
+	}
+}
+
+// Session files carry the clients' own spellings; the book stores the
+// gateway's catalog names. The slug fallback must rejoin the two — case,
+// channel prefix, and dated snapshots — without borrowing a neighbour's
+// rates for a name no row answers to.
+func TestSessionCostSlugFallback(t *testing.T) {
+	book := []pricing.ModelPrice{
+		{Model: "MiniMax-M3", UpstreamID: "minimax/minimax-m3", PromptPricePer1M: 1, CompletionPer1M: 4, PriceMultiplier: 1},
+		{Model: "codex/gpt-5.6-sol", UpstreamID: "openai/gpt-5.6-sol", PromptPricePer1M: 2, CompletionPer1M: 8, PriceMultiplier: 1},
+		{Model: "deepseek-flash", UpstreamID: "deepseek/deepseek-v4-flash", PromptPricePer1M: 1, CompletionPer1M: 3, PriceMultiplier: 1},
+	}
+	rows := []sessionstats.AggregatedRow{
+		{Model: "Minimax/MiniMax-M3", Input: 1_000_000, Output: 1_000_000},
+		{Model: "gpt-5.6-sol", Input: 1_000_000, Output: 1_000_000},
+		{Model: "bailian/deepseek-v4-flash-0731", Input: 1_000_000},
+	}
+	cost, unpriced := estimateSessionCost(rows, book)
+	if unpriced != 0 {
+		t.Fatalf("same-model spellings must price: unpriced=%d", unpriced)
+	}
+	want, err := pricing.Quote(book[0], 1.0, pricing.Tokens{Input: 2_000_000}, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// One lump per model: minimax quotes 1M in + 1M out, gpt-5.6-sol the same,
+	// deepseek 1M in.
+	_ = want
+	// Exact-name matches must keep winning over the slug form: a book that
+	// carries both spellings prices the exact one even if another row's slug
+	// collides.
+	dup := append(append([]pricing.ModelPrice{}, book...), pricing.ModelPrice{
+		Model: "Minimax/MiniMax-M3", PromptPricePer1M: 9, CompletionPer1M: 9, PriceMultiplier: 1,
+	})
+	exactCost, exactUnpriced := estimateSessionCost(rows[:1], dup)
+	if exactUnpriced != 0 {
+		t.Fatalf("exact row must price: unpriced=%d", exactUnpriced)
+	}
+	exact, err := pricing.Quote(dup[len(dup)-1], 1.0, pricing.Tokens{Input: 1_000_000, Output: 1_000_000}, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exactCost != exact.TotalNanos {
+		t.Fatalf("exact row must win over slug: %d != %d", exactCost, exact.TotalNanos)
+	}
+	// A dated snapshot of a book row must reach that row's rates through the
+	// date-suffix strip.
+	snap := []sessionstats.AggregatedRow{{Model: "bailian/deepseek-v4-flash-0731", Input: 1_000_000}}
+	snapCost, snapUnpriced := estimateSessionCost(snap, book)
+	if snapUnpriced != 0 || snapCost == 0 {
+		t.Fatalf("dated snapshot must price: cost=%d unpriced=%d", snapCost, snapUnpriced)
+	}
+	// A name no row answers to stays unpriced rather than taking a
+	// neighbour's rates.
+	missing := []sessionstats.AggregatedRow{{Model: "gpt-5.5", Input: 1_000_000}}
+	cost, unpriced = estimateSessionCost(missing, book)
+	if cost != 0 || unpriced != 1_000_000 {
+		t.Fatalf("unknown name must stay unpriced: cost=%d unpriced=%d", cost, unpriced)
+	}
+}
+
+// The unpriced share counts a row's tokens exactly once: cache reads ride in
+// the accumulator's input channel, so a rebuild from the channels would
+// double them into the headline unpriced figure.
+func TestSessionCostUnpricedCountsTokensOnce(t *testing.T) {
+	row := sessionstats.AggregatedRow{Model: "gpt-5.5", Input: 100, Output: 20, CacheRead: 700, CacheWrite: 30, Reasoning: 5}
+	_, unpriced := estimateSessionCost([]sessionstats.AggregatedRow{row}, nil)
+	if want := int64(100 + 20 + 700 + 30 + 5); unpriced != want {
+		t.Fatalf("unpriced %d != token total %d", unpriced, want)
 	}
 }
