@@ -336,19 +336,35 @@
 }
 
 /* ── Folded model rows ──────────────────────────────────────────────────── */
+/* A quiet disclosure control: grey, chevron rotating on expand — no link
+   styling, it toggles a fold rather than navigating. */
 .sessions-break-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   align-self: flex-start;
   margin: 2px 0 0 14px;
-  padding: 0;
+  padding: 2px 4px;
   border: 0;
+  border-radius: var(--radius-control);
   background: none;
-  color: var(--accent);
+  color: var(--muted);
   font-size: var(--text-sm);
   cursor: pointer;
+  transition: color var(--motion-fast) var(--ease-standard);
 }
 
 .sessions-break-toggle:hover {
-  text-decoration: underline;
+  color: var(--text);
+}
+
+.sessions-break-caret {
+  font-size: 10px;
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+
+.sessions-break-toggle.is-expanded .sessions-break-caret {
+  transform: rotate(90deg);
 }
 
 /* ── All-time window slider ─────────────────────────────────────────────── */
@@ -367,6 +383,11 @@
 }
 
 /* ── Chart section ──────────────────────────────────────────────────────── */
+.sessions-chart.is-panning {
+  cursor: grabbing;
+  user-select: none;
+}
+
 .sessions-chart-head {
   display: flex;
   align-items: center;

@@ -22,6 +22,7 @@ import { usePreference } from '../../hooks/usePreference';
 import { SessionsTrendChart } from '../../charts/SessionsTrendChart';
 import { ModelMark } from '../../components/ModelMark';
 import { ClientMark } from './ClientMark';
+import { RightOutlined } from '../../components/icons';
 import type { SessionDay, SessionModelRow, SessionsSeriesPoint, SessionTokenMix } from '../../types/sessions';
 import './sessions.css';
 
@@ -135,7 +136,13 @@ const BreakdownClientCard: React.FC<{
         );
       })}
       {rows.length > BREAKDOWN_VISIBLE && (
-        <button type="button" className="sessions-break-toggle" onClick={() => setExpanded((value) => !value)}>
+        <button
+          type="button"
+          className={`sessions-break-toggle${expanded ? ' is-expanded' : ''}`}
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+        >
+          <RightOutlined className="sessions-break-caret" />
           {expanded ? t('sessions.breakdown.less') : t('sessions.breakdown.more', { count: hidden })}
         </button>
       )}
@@ -275,27 +282,71 @@ export const SessionsPage: React.FC = () => {
   const todayData = range === 'today' ? data : undefined;
   const todayMix = todayData?.tokens;
 
-  // The all-time window opens on the most recent 30 days and a slider walks
-  // the window start back through history. The slice lives here, not in the
-  // chart: a React-side window lets the plot fill its visible days exactly —
-  // axis and bars both — instead of G2's slider filtering rows while the band
-  // domain keeps every empty slot.
-  const [windowStart, setWindowStart] = React.useState<number | null>(null);
-  React.useEffect(() => setWindowStart(null), [range]);
-  const chartPoints = React.useMemo(() => {
-    const rows = series.data ?? [];
-    if (range !== 'all') return rows;
-    const dates = [...new Set(rows.map((row) => row.date))].sort();
-    if (dates.length <= ALL_WINDOW_DAYS) return rows;
-    const latest = dates.length - ALL_WINDOW_DAYS;
-    const start = Math.min(windowStart ?? latest, latest);
-    const from = dates[Math.max(0, start)];
-    return rows.filter((row) => row.date >= from);
-  }, [series.data, range, windowStart]);
+  // The all-time window opens on the most recent 30 days. The slice lives
+  // here, not in the chart: a React-side window lets the plot fill its
+  // visible days exactly — axis and bars both — instead of G2's slider
+  // filtering rows while the band domain keeps every empty slot. The window
+  // is a [start, end] index pair so it can be resized (slider handles) and
+  // panned (a horizontal drag on the chart shifts it, width preserved).
+  const [windowRange, setWindowRange] = React.useState<[number, number] | null>(null);
+  React.useEffect(() => setWindowRange(null), [range]);
   const windowDates = React.useMemo(() => {
     if (range !== 'all') return [];
     return [...new Set((series.data ?? []).map((row) => row.date))].sort();
   }, [series.data, range]);
+  const windowSpan = React.useMemo(() => {
+    if (windowDates.length === 0) return 0;
+    if (!windowRange) return Math.min(ALL_WINDOW_DAYS, windowDates.length);
+    return Math.max(1, windowRange[1] - windowRange[0] + 1);
+  }, [windowDates.length, windowRange]);
+  // Drag-to-pan: a horizontal drag on the chart shifts the window by days,
+  // width preserved. The move handler recomputes from the pointer-down anchor
+  // every event, so rounding never drifts.
+  const chartRef = React.useRef<HTMLDivElement | null>(null);
+  const panAnchor = React.useRef<{ x: number; start: number; end: number } | null>(null);
+  const [panning, setPanning] = React.useState(false);
+  const onPanStart = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || windowDates.length === 0) return;
+    // Materialise the effective window — the most-recent 30 days when the
+    // operator has not touched the slider — or the first drag would anchor on
+    // the whole history and appear to do nothing.
+    const defStart = Math.max(0, windowDates.length - ALL_WINDOW_DAYS);
+    panAnchor.current = {
+      x: event.clientX,
+      start: windowRange?.[0] ?? defStart,
+      end: windowRange?.[1] ?? windowDates.length - 1,
+    };
+    setPanning(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const onPanMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const anchor = panAnchor.current;
+    if (!anchor) return;
+    const width = chartRef.current?.clientWidth ?? 1;
+    const days = Math.round((event.clientX - anchor.x) / Math.max(width / Math.max(windowSpan, 1), 1));
+    const last = windowDates.length - 1;
+    const span = anchor.end - anchor.start;
+    let start = anchor.start + days;
+    start = Math.max(0, Math.min(start, last - span));
+    setWindowRange([start, start + span]);
+  };
+  const onPanEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+    panAnchor.current = null;
+    setPanning(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  };
+  const chartPoints = React.useMemo(() => {
+    const rows = series.data ?? [];
+    if (range !== 'all' || windowDates.length === 0) return rows;
+    const last = windowDates.length - 1;
+    const start = Math.max(0, Math.min(windowRange?.[0] ?? Math.max(0, last + 1 - ALL_WINDOW_DAYS), last));
+    const end = Math.max(start, Math.min(windowRange?.[1] ?? last, last));
+    const from = windowDates[start];
+    const to = windowDates[end];
+    return rows.filter((row) => row.date >= from && row.date <= to);
+  }, [series.data, range, windowDates, windowRange]);
 
   // Per-client window totals for the detected-clients grid: the headline
   // number follows the selected range; files/entries/last-scan stay lifetime
@@ -418,19 +469,34 @@ export const SessionsPage: React.FC = () => {
               aria-label={t('sessions.chart.mode')}
             />
           </div>
-          <div className="sessions-chart" data-testid="sessions-daily">
+          <div
+            ref={chartRef}
+            className={`sessions-chart${panning ? ' is-panning' : ''}`}
+            data-testid="sessions-daily"
+            onPointerDown={range === 'all' && windowDates.length > 0 ? onPanStart : undefined}
+            onPointerMove={range === 'all' ? onPanMove : undefined}
+            onPointerUp={onPanEnd}
+            onPointerCancel={onPanEnd}
+          >
             {series.isError
               ? <LoadFailure title={t('sessions.daily')} onRetry={() => void series.refetch()} />
               : <SessionsTrendChart points={chartPoints} granularity={range === 'today' ? 'hour' : 'day'} />}
           </div>
-          {windowDates.length > ALL_WINDOW_DAYS && (
+          {windowDates.length > 0 && range === 'all' && (
             <div className="sessions-window" data-testid="sessions-window">
               <Slider
                 className="sessions-window-slider"
+                range
                 min={0}
-                max={windowDates.length - ALL_WINDOW_DAYS}
-                value={Math.min(windowStart ?? windowDates.length - ALL_WINDOW_DAYS, windowDates.length - ALL_WINDOW_DAYS)}
-                onChange={(value) => setWindowStart(value)}
+                max={windowDates.length - 1}
+                value={[
+                  Math.max(0, Math.min(windowRange?.[0] ?? Math.max(0, windowDates.length - ALL_WINDOW_DAYS), windowDates.length - 1)),
+                  Math.max(0, Math.min(windowRange?.[1] ?? windowDates.length - 1, windowDates.length - 1)),
+                ]}
+                onChange={(value) => {
+                  const [from, to] = value as [number, number];
+                  setWindowRange([Math.min(from, to), Math.max(from, to)]);
+                }}
                 tooltip={{ formatter: (value) => windowDates[Math.max(0, Math.min(value ?? 0, windowDates.length - 1))] ?? '' }}
               />
               <div className="sessions-window-labels mono">
