@@ -237,34 +237,62 @@ func (h *Handler) sessionsReader(writer http.ResponseWriter, request *http.Reque
 // tiers, no channel multiplier). Unpriced models add to the unpriced share
 // instead of $0. The console's exclusive buckets recombine into
 // pricing.Tokens' cache-inclusive Input before quoting.
+//
+// Rows are summed per model and quoted once per model: Quote is linear in
+// every token bucket and the multiplier, so quoting the sum equals summing
+// the quotes — and a whole-history read costs one Quote per model instead of
+// one per cache row.
 func estimateSessionCost(rows []sessionstats.AggregatedRow, prices []pricing.ModelPrice) (costNanos int64, unpriced int64) {
 	book := map[string]pricing.ModelPrice{}
 	for _, price := range prices {
 		book[price.Model] = price
 	}
+	type modelTotals struct {
+		input, output, cacheRead, cacheWrite int64
+		price                                pricing.ModelPrice
+		priced                               bool
+	}
+	totals := map[string]*modelTotals{}
 	for _, row := range rows {
 		tokens := row.Input + row.Output + row.CacheRead + row.CacheWrite + row.Reasoning
 		if tokens == 0 {
 			continue
 		}
-		price, ok := book[row.Model]
-		if !ok {
-			unpriced += tokens
+		total := totals[row.Model]
+		if total == nil {
+			total = &modelTotals{}
+			price, ok := book[row.Model]
+			if ok {
+				// Tiers are per-request assertions (prompt thresholds, service
+				// lanes, time windows); an aggregate cannot decide them, so the
+				// estimate quotes base rates only (spec §5).
+				price.Tiers = nil
+				total.price, total.priced = price, true
+			}
+			totals[row.Model] = total
+		}
+		// Unpriced models accumulate too — the unpriced share counts their
+		// exact tokens even though nothing quotes them.
+		total.input += row.Input + row.CacheRead + row.CacheWrite
+		total.output += row.Output + row.Reasoning
+		total.cacheRead += row.CacheRead
+		total.cacheWrite += row.CacheWrite
+	}
+	for _, total := range totals {
+		rowTokens := sessionstats.TokenBreakdown{
+			Input: total.input, Output: total.output,
+			CacheRead: total.cacheRead, CacheWrite: total.cacheWrite,
+		}
+		if !total.priced {
+			unpriced += rowTokens.Total()
 			continue
 		}
-		// Tiers are per-request assertions (prompt thresholds, service lanes,
-		// time windows); a 15-minute aggregate cannot decide them, so the
-		// estimate quotes base rates only (spec §5) — a tiered row must not
-		// leak its long-context rate onto a whole bucket.
-		price.Tiers = nil
-		breakdown, err := pricing.Quote(price, 1.0, pricing.Tokens{
-			Input:      row.Input + row.CacheRead + row.CacheWrite,
-			Output:     row.Output + row.Reasoning,
-			CacheRead:  row.CacheRead,
-			CacheWrite: row.CacheWrite,
-		}, row.Bucket15MS, "")
+		breakdown, err := pricing.Quote(total.price, 1.0, pricing.Tokens{
+			Input: total.input, Output: total.output,
+			CacheRead: total.cacheRead, CacheWrite: total.cacheWrite,
+		}, 0, "")
 		if err != nil {
-			unpriced += tokens
+			unpriced += rowTokens.Total()
 			continue
 		}
 		costNanos += breakdown.TotalNanos

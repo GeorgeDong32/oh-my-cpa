@@ -254,13 +254,16 @@ func (r *Repository) SessionTimeline(ctx context.Context, client, sessionID stri
 	return points, rows.Err()
 }
 
-// SummaryRows answers the read APIs: deduped aggregates grouped to the UTC
-// 15-minute grid — calendar days fold in Go against the console timezone.
+// SummaryRows answers the read APIs from the pre-aggregated bucket cache:
+// the scan folds the deduped view into session_bucket_cache (identical
+// grouping, computed once per changed bucket instead of once per request),
+// so a read is one indexed range scan. Per-row session counts are not
+// carried — exact session numbers come from the activity table via
+// BucketSessionCounts and ClientSessionCounts.
 func (r *Repository) SummaryRows(ctx context.Context, fromBucket int64) ([]sessionstats.AggregatedRow, error) {
 	rows, err := r.SQL().QueryContext(ctx, `SELECT bucket_15m, client, model, provider, ws_key,
-	  sum(input), sum(output), sum(cache_read), sum(cache_write), sum(reasoning), sum(message_count),
-	  count(DISTINCT session_id)
-	 FROM (`+dedupedSessionMessages+`)
+	  sum(input), sum(output), sum(cache_read), sum(cache_write), sum(reasoning), sum(message_count)
+	 FROM session_bucket_cache
 	 WHERE bucket_15m >= ?
 	 GROUP BY bucket_15m, client, model, provider, ws_key`, fromBucket)
 	if err != nil {
@@ -271,7 +274,7 @@ func (r *Repository) SummaryRows(ctx context.Context, fromBucket int64) ([]sessi
 	for rows.Next() {
 		var row sessionstats.AggregatedRow
 		if err := rows.Scan(&row.Bucket15MS, &row.Client, &row.Model, &row.Provider, &row.Workspace,
-			&row.Input, &row.Output, &row.CacheRead, &row.CacheWrite, &row.Reasoning, &row.Messages, &row.Sessions); err != nil {
+			&row.Input, &row.Output, &row.CacheRead, &row.CacheWrite, &row.Reasoning, &row.Messages); err != nil {
 			return nil, err
 		}
 		result = append(result, row)

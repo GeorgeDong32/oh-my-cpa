@@ -74,6 +74,13 @@ func TestSessionStatsStoreScanAndRead(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Reads answer from the bucket cache; the scan's tail folds the dirty
+	// buckets, and this harness mirrors that contract.
+	if buckets, err := r.DirtyBuckets(ctx); err != nil {
+		t.Fatal(err)
+	} else if err := r.FoldBucketCache(ctx, buckets); err != nil {
+		t.Fatal(err)
+	}
 	rows, err := r.SummaryRows(ctx, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -92,6 +99,11 @@ func TestSessionStatsStoreScanAndRead(t *testing.T) {
 
 	// A vanished file drops its rows; the tool_result row from file B survives.
 	if _, err := r.DropFile(ctx, "pi", "/a.jsonl"); err != nil {
+		t.Fatal(err)
+	}
+	if buckets, err := r.DirtyBuckets(ctx); err != nil {
+		t.Fatal(err)
+	} else if err := r.FoldBucketCache(ctx, buckets); err != nil {
 		t.Fatal(err)
 	}
 	rows, err = r.SummaryRows(ctx, 0)

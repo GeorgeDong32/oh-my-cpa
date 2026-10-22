@@ -46,11 +46,24 @@ func TestEstimateSessionCostMatchesQuotePath(t *testing.T) {
 	if costNanos >= flatNanos {
 		t.Fatalf("estimate did not benefit from cache rates: %d vs flat %d", costNanos, flatNanos)
 	}
-	// Unpriced models add to the unpriced share, never to cost.
+	// Unpriced models add to the unpriced share, never to cost. The unpriced
+	// bucket keeps its exact token count even though it prices at zero.
 	other := append(rows, sessionstats.AggregatedRow{Bucket15MS: 1, Client: "x", Model: "mystery", Input: 5})
 	costNanos2, unpriced2 := estimateSessionCost(other, []pricing.ModelPrice{price})
 	if costNanos2 != costNanos || unpriced2 != 5 {
 		t.Fatalf("unpriced handling: cost %d unpriced %d", costNanos2, unpriced2)
+	}
+	// Per-model aggregation is exact: two rows of one model price the same as
+	// each row quoted alone, summed.
+	doubled := append([]sessionstats.AggregatedRow{}, rows...)
+	doubled = append(doubled, sessionstats.AggregatedRow{
+		Bucket15MS: rows[0].Bucket15MS + 1, Client: rows[0].Client, Model: rows[0].Model,
+		Input: rows[0].Input, Output: rows[0].Output, CacheRead: rows[0].CacheRead,
+		CacheWrite: rows[0].CacheWrite, Reasoning: rows[0].Reasoning,
+	})
+	costNanos3, _ := estimateSessionCost(doubled, []pricing.ModelPrice{price})
+	if costNanos3 != 2*costNanos {
+		t.Fatalf("summed-quote equivalence: %d != 2×%d", costNanos3, costNanos)
 	}
 }
 
