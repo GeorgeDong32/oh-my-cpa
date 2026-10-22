@@ -20,7 +20,7 @@ import {
 } from '../../types/sessionsRange';
 import { usePreference } from '../../hooks/usePreference';
 import { SessionsTrendChart } from '../../charts/SessionsTrendChart';
-import type { SessionDay, SessionsSeriesPoint } from '../../types/sessions';
+import type { SessionDay, SessionModelRow, SessionsSeriesPoint, SessionTokenMix } from '../../types/sessions';
 import './sessions.css';
 
 const SESSIONS_QUERY_KEYS = {
@@ -37,20 +37,109 @@ function formatUsd(value: number): string {
   return `$${value.toFixed(2)}`;
 }
 
-const TokenCompositionBar: React.FC<{ mix: NonNullable<import('../../types/sessions').SessionsSummary['tokens']> }> = ({ mix }) => {
-  const parts = [
-    { className: 'comp-input', value: mix.input },
-    { className: 'comp-output', value: mix.output },
-    { className: 'comp-cache-read', value: mix.cache_read },
-    { className: 'comp-cache-write', value: mix.cache_write },
-    { className: 'comp-reasoning', value: mix.reasoning },
-  ];
-  const total = mix.input + mix.output + mix.cache_read + mix.cache_write + mix.reasoning;
+const MIX_PARTS: Array<{ className: string; key: keyof SessionTokenMix }> = [
+  { className: 'comp-input', key: 'input' },
+  { className: 'comp-output', key: 'output' },
+  { className: 'comp-cache-read', key: 'cache_read' },
+  { className: 'comp-cache-write', key: 'cache_write' },
+  { className: 'comp-reasoning', key: 'reasoning' },
+];
+
+const TokenCompositionBar: React.FC<{ mix: SessionTokenMix }> = ({ mix }) => {
+  const total = mixTotal(mix);
   if (total <= 0) return <div className="sessions-comp" aria-hidden />;
   return (
     <div className="sessions-comp" data-testid="sessions-composition">
-      {parts.map((part) => (
-        part.value > 0 ? <div key={part.className} className={`sessions-comp-part ${part.className}`} style={{ flexGrow: part.value }} /> : null
+      {MIX_PARTS.map((part) => (
+        mix[part.key] > 0 ? <div key={part.className} className={`sessions-comp-part ${part.className}`} style={{ flexGrow: mix[part.key] }} /> : null
+      ))}
+    </div>
+  );
+};
+
+/** tokens.ci's bucket legend: a colour dot, the bucket name, and its count. */
+const MixLegend: React.FC<{ mix: SessionTokenMix }> = ({ mix }) => {
+  const t = useT();
+  const { style } = useTokenDisplayStyle();
+  const fmtTokens = React.useCallback((tokens: number) => formatTokens(tokens, style), [style]);
+  const labels: Record<keyof SessionTokenMix, string> = {
+    input: t('sessions.mix.input'),
+    output: t('sessions.mix.output'),
+    cache_read: t('sessions.mix.cache_read'),
+    cache_write: t('sessions.mix.cache_write'),
+    reasoning: t('sessions.mix.reasoning'),
+  };
+  return (
+    <div className="sessions-legend">
+      {MIX_PARTS.map((part) => (
+        <span key={part.className} className="sessions-legend-item">
+          <span className={`sessions-legend-swatch ${part.className}`} aria-hidden />
+          <span className="sessions-legend-label">{labels[part.key]}</span>
+          <span className="sessions-legend-value mono">{fmtTokens(mix[part.key])}</span>
+        </span>
+      ))}
+    </div>
+  );
+};
+
+/**
+ * ClientBreakdown renders tokens.ci's two-level client cards: one row per
+ * client with its message count, cost, and token total; beneath it one row
+ * per model with a share bar and the model's token count. Rows come from the
+ * window's per-(client, model) summary rows.
+ */
+const ClientBreakdown: React.FC<{ models?: SessionModelRow[] }> = ({ models }) => {
+  const t = useT();
+  const { style } = useTokenDisplayStyle();
+  const fmtTokens = React.useCallback((tokens: number) => formatTokens(tokens, style), [style]);
+  const groups = React.useMemo(() => {
+    const byClient = new Map<string, SessionModelRow[]>();
+    for (const row of models ?? []) {
+      const list = byClient.get(row.clients) ?? [];
+      list.push(row);
+      byClient.set(row.clients, list);
+    }
+    return [...byClient.entries()]
+      .map(([client, rows]) => {
+        const sorted = rows.slice().sort((left, right) => right.tokens - left.tokens);
+        return {
+          client,
+          rows: sorted,
+          tokens: sorted.reduce((sum, row) => sum + row.tokens, 0),
+          messages: sorted.reduce((sum, row) => sum + row.messages, 0),
+          costUsd: sorted.reduce((sum, row) => sum + row.cost_usd, 0),
+          allPriced: sorted.every((row) => row.priced),
+        };
+      })
+      .sort((left, right) => right.tokens - left.tokens);
+  }, [models]);
+  if (groups.length === 0) return null;
+  return (
+    <div className="sessions-break" data-testid="sessions-breakdown">
+      {groups.map((group) => (
+        <div key={group.client} className="sessions-break-client">
+          <div className="sessions-break-client-head">
+            <span className="sessions-break-client-name">{group.client}</span>
+            <span className="sessions-break-client-meta">
+              <span>{group.messages} {t('sessions.messages')}</span>
+              <span>{group.allPriced ? formatUsd(group.costUsd) : '—'}</span>
+              <span className="sessions-break-client-tokens mono">{fmtTokens(group.tokens)}</span>
+            </span>
+          </div>
+          {group.rows.map((row) => {
+            const share = group.tokens > 0 ? row.tokens / group.tokens : 0;
+            return (
+              <div key={row.model} className="sessions-break-model">
+                <span className="sessions-break-model-name mono" title={row.model}>{row.model}</span>
+                <span className="sessions-break-model-bar" aria-hidden>
+                  <span className="sessions-break-model-fill" style={{ width: `${Math.max(share * 100, 1.5)}%` }} />
+                </span>
+                <span className="sessions-break-model-pct mono">{(share * 100).toFixed(0)}%</span>
+                <span className="sessions-break-model-tokens mono">{fmtTokens(row.tokens)}</span>
+              </div>
+            );
+          })}
+        </div>
       ))}
     </div>
   );
@@ -72,12 +161,12 @@ export const SessionsPage: React.FC = () => {
     queryKey: [...SESSIONS_QUERY_KEYS.all, 'summary', rangeParam, tz],
     queryFn: () => api.getSessionsSummary(rangeParam, tz),
   });
-  // The Today strip is its own capture: it stays on the viewer's calendar day
-  // no matter which history range the tiles above are reading.
+  // The Today card is its own capture: it stays on the viewer's calendar day
+  // no matter which history range the hero above is reading. For the today
+  // range react-query dedupes this with the summary query above.
   const today = useQuery({
     queryKey: [...SESSIONS_QUERY_KEYS.all, 'summary', 'today', tz],
     queryFn: () => api.getSessionsSummary('today', tz),
-    enabled: range !== 'today',
   });
   const series = useQuery({
     queryKey: [...SESSIONS_QUERY_KEYS.all, 'series', rangeParam, seriesMode, tz],
@@ -190,48 +279,66 @@ export const SessionsPage: React.FC = () => {
       />
       {firstScanPending && <Notice tone="info" title={t('sessions.first_scan.title')} />}
       {summary.isError && <LoadFailure title={t('sessions.title')} onRetry={() => void summary.refetch()} />}
-      {todayMix && range !== 'today' && (
-        <section className="sessions-section sessions-today" data-testid="sessions-today">
-          <div className="sessions-today-head">
-            <h2>{t('sessions.today')}</h2>
-            <span className="sessions-today-total">{fmtTokens(mixTotal(todayMix))}</span>
+      {data && mix && (
+        <section className="sessions-hero">
+          <div className="sessions-stats">
+            <div className="sessions-stat">
+              <div className="sessions-stat-label">{t('sessions.total_tokens')}</div>
+              <div className="sessions-stat-value mono">{fmtTokens(data.total_tokens)}</div>
+            </div>
+            <div className="sessions-stat">
+              <div className="sessions-stat-label">{t('sessions.cost')}</div>
+              <div className="sessions-stat-value mono">{formatUsd(data.cost_usd)}</div>
+              <div className="sessions-stat-caption">
+                {t('sessions.cost_note')}
+                {data.unpriced_tokens > 0 && <> {t('sessions.unpriced', { tokens: fmtTokens(data.unpriced_tokens) })}</>}
+              </div>
+            </div>
+            <div className="sessions-stat">
+              <div className="sessions-stat-label">{t('sessions.active_days')}</div>
+              <div className="sessions-stat-value mono">{data.active_days}</div>
+              <div className="sessions-stat-caption">{t('sessions.active_days_note')}</div>
+            </div>
+            <div className="sessions-stat">
+              <div className="sessions-stat-label">{t('sessions.sessions')}</div>
+              <div className="sessions-stat-value mono">{data.sessions}</div>
+              <div className="sessions-stat-caption">{t('sessions.sessions_note')}</div>
+            </div>
           </div>
-          <TokenCompositionBar mix={todayMix} />
-          <div className="sessions-today-caption">
-            <span>{t('sessions.mix.input')} {fmtTokens(todayMix.input)}</span>
-            <span>{t('sessions.mix.output')} {fmtTokens(todayMix.output)}</span>
-            <span>{t('sessions.mix.cache_read')} {fmtTokens(todayMix.cache_read)}</span>
-            <span>{t('sessions.mix.reasoning')} {fmtTokens(todayMix.reasoning)}</span>
-            {todayData && todayData.sessions > 0 && <span>{t('sessions.sessions')} {todayData.sessions}</span>}
-          </div>
+          <TokenCompositionBar mix={mix} />
+          <MixLegend mix={mix} />
         </section>
       )}
-      {data && (
-        <div className="sessions-grid">
-          <div className="sessions-tile">
-            <div className="sessions-tile-label">{t('sessions.total_tokens')}</div>
-            <div className="sessions-tile-value">{fmtTokens(data.total_tokens)}</div>
-            {mix && <TokenCompositionBar mix={mix} />}
+      {todayMix && (
+        <section className="sessions-today" data-testid="sessions-today">
+          <div className="sessions-today-head">
+            <div className="sessions-today-title">
+              <h2>{t('sessions.today')}</h2>
+              {todayData?.today?.date && <span className="sessions-today-date mono">{todayData.today.date}</span>}
+            </div>
+            <div className="sessions-today-headstats">
+              <span className="sessions-today-headstat">
+                <span className="sessions-today-headstat-label">{t('sessions.col.tokens')}</span>
+                <span className="sessions-today-headstat-value mono">{fmtTokens(mixTotal(todayMix))}</span>
+              </span>
+              {todayData && (
+                <span className="sessions-today-headstat">
+                  <span className="sessions-today-headstat-label">{t('sessions.cost')}</span>
+                  <span className="sessions-today-headstat-value mono">{formatUsd(todayData.cost_usd)}</span>
+                </span>
+              )}
+              <span className="sessions-today-headstat">
+                <span className="sessions-today-headstat-label">{t('sessions.messages')}</span>
+                <span className="sessions-today-headstat-value mono">
+                  {todayData?.today?.messages ?? todayData?.sessions ?? 0}
+                </span>
+              </span>
+            </div>
           </div>
-          <div className="sessions-tile">
-            <div className="sessions-tile-label">{t('sessions.cost')}</div>
-            <div className="sessions-tile-value">{formatUsd(data.cost_usd)}</div>
-            <div className="sessions-tile-caption">{t('sessions.cost_note')}</div>
-            {data.unpriced_tokens > 0 && (
-              <div className="sessions-tile-caption">{t('sessions.unpriced', { tokens: fmtTokens(data.unpriced_tokens) })}</div>
-            )}
-          </div>
-          <div className="sessions-tile">
-            <div className="sessions-tile-label">{t('sessions.active_days')}</div>
-            <div className="sessions-tile-value">{data.active_days}</div>
-            <div className="sessions-tile-caption">{t('sessions.active_days_note')}</div>
-          </div>
-          <div className="sessions-tile">
-            <div className="sessions-tile-label">{t('sessions.sessions')}</div>
-            <div className="sessions-tile-value">{data.sessions}</div>
-            <div className="sessions-tile-caption">{t('sessions.sessions_note')}</div>
-          </div>
-        </div>
+          <TokenCompositionBar mix={todayMix} />
+          <MixLegend mix={todayMix} />
+          <ClientBreakdown models={todayData?.models} />
+        </section>
       )}
       {chartPoints.length > 0 && (
         <section className="sessions-section">
@@ -254,31 +361,8 @@ export const SessionsPage: React.FC = () => {
       )}
       {data && data.models && data.models.length > 0 && (
         <section className="sessions-section">
-          <h2>{t('sessions.models')}</h2>
-          <div className="sessions-table-wrap">
-            <table className="sessions-table">
-              <thead>
-                <tr>
-                  <th>{t('sessions.col.model')}</th>
-                  <th>{t('sessions.col.client')}</th>
-                  <th className="num">{t('sessions.col.tokens')}</th>
-                  <th className="num">{t('sessions.col.share')}</th>
-                  <th className="num">{t('sessions.col.cost')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.models.map((model) => (
-                  <tr key={`${model.model}/${model.clients}`}>
-                    <td className="mono">{model.model}</td>
-                    <td>{model.clients}</td>
-                    <td className="num mono">{fmtTokens(model.tokens)}</td>
-                    <td className="num mono">{(model.share * 100).toFixed(1)}%</td>
-                    <td className="num mono">{model.priced ? formatUsd(model.cost_usd) : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <h2>{t('sessions.breakdown')}</h2>
+          <ClientBreakdown models={data.models} />
         </section>
       )}
       {clients.data && clients.data.clients && clients.data.clients.length > 0 && (

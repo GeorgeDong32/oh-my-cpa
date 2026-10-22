@@ -14,6 +14,7 @@ export interface SessionModelRow {
   clients: string;
   tokens: number;
   share: number;
+  messages: number;
   cost_usd: number;
   priced: boolean;
 }

@@ -122,6 +122,7 @@ func sessionsDays(request *http.Request) (int, string) {
 
 type sessionsTotals struct {
 	Input, Output, CacheRead, CacheWrite, Reasoning int64
+	Messages                                        int64
 }
 
 func (t *sessionsTotals) add(row sessionstats.AggregatedRow) {
@@ -130,6 +131,7 @@ func (t *sessionsTotals) add(row sessionstats.AggregatedRow) {
 	t.CacheRead += row.CacheRead
 	t.CacheWrite += row.CacheWrite
 	t.Reasoning += row.Reasoning
+	t.Messages += row.Messages
 }
 
 func (t sessionsTotals) total() int64 {
@@ -182,12 +184,13 @@ type sessionTokenMixDTO struct {
 }
 
 type sessionModelRowDTO struct {
-	Model   string  `json:"model"`
-	Clients string  `json:"clients"`
-	Tokens  int64   `json:"tokens"`
-	Share   float64 `json:"share"`
-	CostUSD float64 `json:"cost_usd"`
-	Priced  bool    `json:"priced"`
+	Model    string  `json:"model"`
+	Clients  string  `json:"clients"`
+	Tokens   int64   `json:"tokens"`
+	Share    float64 `json:"share"`
+	Messages int64   `json:"messages"`
+	CostUSD  float64 `json:"cost_usd"`
+	Priced   bool    `json:"priced"`
 }
 
 type sessionClientRowDTO struct {
@@ -350,7 +353,7 @@ func (h *Handler) getSessionsSummary(writer http.ResponseWriter, request *http.R
 		models[key].add(row)
 		modelRows[key] = append(modelRows[key], row)
 	}
-	summary.Window = sessionTokenMixDTO(totals)
+	summary.Window = sessionTokenMixDTO{Input: totals.Input, Output: totals.Output, CacheRead: totals.CacheRead, CacheWrite: totals.CacheWrite, Reasoning: totals.Reasoning}
 	summary.TotalTokens = totals.total()
 	summary.ActiveDays = int64(len(activeDays))
 	summary.Weekday = weekday
@@ -358,7 +361,7 @@ func (h *Handler) getSessionsSummary(writer http.ResponseWriter, request *http.R
 	summary.CostUSD = float64(costNanos) / 1e9
 	summary.UnpricedTokens = unpriced
 	for key, modelTotals := range models {
-		row := sessionModelRowDTO{Model: key.model, Clients: key.client, Tokens: modelTotals.total()}
+		row := sessionModelRowDTO{Model: key.model, Clients: key.client, Tokens: modelTotals.total(), Messages: modelTotals.Messages}
 		row.Share = shareOf(row.Tokens, summary.TotalTokens)
 		row.Priced = pricedModel(row.Model, prices)
 		if nanos, _ := estimateSessionCost(modelRows[key], prices); nanos > 0 {
@@ -601,7 +604,7 @@ func (h *Handler) getSessionsModels(writer http.ResponseWriter, request *http.Re
 		Models []sessionModelRowDTO `json:"models"`
 	}{}
 	for key, modelTotals := range models {
-		row := sessionModelRowDTO{Model: key.model, Clients: key.client, Tokens: modelTotals.total()}
+		row := sessionModelRowDTO{Model: key.model, Clients: key.client, Tokens: modelTotals.total(), Messages: modelTotals.Messages}
 		row.Share = shareOf(row.Tokens, total)
 		row.Priced = pricedModel(row.Model, prices)
 		if nanos, _ := estimateSessionCost(modelRows[key], prices); nanos > 0 {

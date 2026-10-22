@@ -64,6 +64,77 @@
 .comp-cache-write { background: var(--chart-4, var(--danger)); }
 .comp-reasoning { background: var(--chart-5, var(--muted)); }
 
+/* ── Hero: tokens.ci's stat row — small-caps labels over large mono numbers,
+   then the range's composition bar and bucket legend ────────────────────── */
+.sessions-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sessions-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.sessions-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sessions-stat-label {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sessions-stat-value {
+  font-size: clamp(26px, 3vw, 36px);
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.sessions-stat-caption {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+/* ── Bucket legend: colour dot + name + count, tokens.ci-style ──────────── */
+.sessions-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+}
+
+.sessions-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sessions-legend-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.sessions-legend-label {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.sessions-legend-value {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 .sessions-section {
   display: flex;
   flex-direction: column;
@@ -77,25 +148,6 @@
 }
 
 
-
-.sessions-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-variant-numeric: tabular-nums;
-}
-
-.sessions-table th,
-.sessions-table td {
-  text-align: left;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--border);
-  font-size: var(--text-sm);
-}
-
-.sessions-table th {
-  color: var(--muted);
-  font-weight: 500;
-}
 
 .sessions-clients {
   display: grid;
@@ -132,24 +184,15 @@
   border-color: var(--accent);
 }
 
-@media (max-width: 720px) {
-  .sessions-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .sessions-daily {
-    height: 80px;
-  }
-}
-
-/* ── Today strip (tokens.ci's ProfileToday reading) ─────────────────────── */
+/* ── Today card (tokens.ci's ProfileToday): header row with the day's
+   totals, composition bar + legend, then per-client → per-model cards ──── */
 .sessions-today {
   border: 1px solid var(--border);
   border-radius: var(--radius-surface);
-  padding: 14px 16px;
+  padding: 16px 20px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   background: var(--surface);
 }
 
@@ -157,25 +200,132 @@
   display: flex;
   align-items: baseline;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
 }
 
-.sessions-today-head h2 {
+.sessions-today-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.sessions-today-title h2 {
   margin: 0;
-  font-size: var(--text-base);
+  font-size: var(--text-lg);
 }
 
-.sessions-today-total {
-  font-size: var(--text-xl);
+.sessions-today-date {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.sessions-today-headstats {
+  display: flex;
+  align-items: baseline;
+  gap: 22px;
+}
+
+.sessions-today-headstat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.sessions-today-headstat-label {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.sessions-today-headstat-value {
+  font-size: var(--text-lg);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
-.sessions-today-caption {
+/* ── Client → model breakdown cards ─────────────────────────────────────── */
+.sessions-break {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+  flex-direction: column;
+}
+
+.sessions-break-client {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.sessions-break-client:first-child {
+  border-top: 0;
+  padding-top: 2px;
+}
+
+.sessions-break-client-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sessions-break-client-name {
+  font-weight: 600;
+  font-size: var(--text-md);
+}
+
+.sessions-break-client-meta {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 18px;
   color: var(--muted);
   font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.sessions-break-client-tokens {
+  color: var(--text);
+  font-weight: 600;
+  font-size: var(--text-md);
+}
+
+.sessions-break-model {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 220px) 44px 84px;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 0 5px 14px;
+}
+
+.sessions-break-model-name {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sessions-break-model-bar {
+  height: 3px;
+  border-radius: var(--radius-xs);
+  background: var(--surface-muted);
+  overflow: hidden;
+}
+
+.sessions-break-model-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-xs);
+  background: var(--accent);
+}
+
+.sessions-break-model-pct {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  text-align: right;
+}
+
+.sessions-break-model-tokens {
+  font-size: var(--text-sm);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Chart section ──────────────────────────────────────────────────────── */
@@ -196,4 +346,26 @@
   border-radius: var(--radius-surface);
   padding: 12px 8px 4px;
   background: var(--surface);
+}
+
+@media (max-width: 720px) {
+  .sessions-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .sessions-daily {
+    height: 80px;
+  }
+
+  .sessions-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sessions-break-model {
+    grid-template-columns: minmax(0, 1fr) 72px 44px 72px;
+  }
+
+  .sessions-today {
+    padding: 12px 14px;
+  }
 }
