@@ -9,6 +9,7 @@ import { resolveChartAnimation } from './chartMotion';
 import { useChartPlugins } from './chartRender';
 import { seriesColor } from './chartTheme';
 import { currentFontStack } from '../theme/fontLibrary';
+import { useT } from '../i18n';
 import { formatTokens as formatTokensStyled, formatTokensFull } from '../types/tokenDisplay';
 import { useTokenDisplayStyle } from '../types/tokenDisplayContext';
 import type { SessionsSeriesPoint } from '../types/sessions';
@@ -61,6 +62,7 @@ export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, 
   const animate = resolveChartAnimation(isReducedMotion);
   const { style: tokenStyle } = useTokenDisplayStyle();
   const { plugins, onReady } = useChartPlugins();
+  const t = useT();
 
   const seriesNames = React.useMemo(() => {
     const names: string[] = [];
@@ -133,16 +135,19 @@ export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, 
                 })
                 .filter((item) => item.value > 0);
               if (items.length === 0) return '';
-              // The bucket arrives as the group's title — the date string itself,
-              // since the x field is a calendar day rather than an epoch.
+              // The bucket's total leads the readout: the stack shows the split,
+              // the uncoloured row answers what the whole column adds up to.
+              const total = items.reduce((sum, item) => sum + item.value, 0);
               return renderChartTooltip(
                 context?.title ?? '',
-                items.map((item) => ({
+                [
+                  { name: t('sessions.chart.total'), value: formatTokensStyled(total, tokenStyle), exact: formatTokensFull(total) },
+                ].concat(items.map((item) => ({
                   name: item.name,
                   color: item.color,
                   value: formatTokensStyled(item.value, tokenStyle),
                   exact: formatTokensFull(item.value),
-                })),
+                }))),
               );
             },
           },

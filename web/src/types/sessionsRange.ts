@@ -21,6 +21,6 @@ export function sessionsRangeParam(range: SessionsRange): string {
 }
 
 /** Which dimension the daily chart's stacks colour by. */
-export type SessionsSeriesMode = 'total' | 'client' | 'model';
+export type SessionsSeriesMode = 'client' | 'model';
 
-export const DEFAULT_SESSIONS_SERIES_MODE: SessionsSeriesMode = 'total';
+export const DEFAULT_SESSIONS_SERIES_MODE: SessionsSeriesMode = 'model';

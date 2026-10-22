@@ -211,18 +211,10 @@ export const SessionsPage: React.FC = () => {
   const chartBucket = range === 'today' ? 'hour' as const : undefined;
   const series = useQuery({
     queryKey: [...SESSIONS_QUERY_KEYS.all, 'series', rangeParam, seriesMode, chartBucket ?? 'day', tz],
-    queryFn: () =>
-      seriesMode === 'total'
-        ? api.getSessionsDaily(rangeParam, tz, chartBucket).then((daily): SessionsSeriesPoint[] =>
-            (daily.days ?? []).map((day) => ({
-              date: day.date,
-              series: t('sessions.chart.total'),
-              tokens: mixTotal(day),
-            })),
-          )
-        : api
-            .getSessionsSeries(rangeParam, seriesMode, tz, chartBucket)
-            .then((result): SessionsSeriesPoint[] => {
+    queryFn: (): Promise<SessionsSeriesPoint[]> =>
+      api
+        .getSessionsSeries(rangeParam, seriesMode, tz, chartBucket)
+        .then((result): SessionsSeriesPoint[] => {
               const rows = (result.series ?? []).map((row) => ({
                 date: row.date,
                 series: row.name,
@@ -369,7 +361,6 @@ export const SessionsPage: React.FC = () => {
     { label: t('sessions.range.all'), value: 'all' },
   ];
   const modeOptions = [
-    { label: t('sessions.chart.total'), value: 'total' },
     { label: t('sessions.chart.by_client'), value: 'client' },
     { label: t('sessions.chart.by_model'), value: 'model' },
   ];
