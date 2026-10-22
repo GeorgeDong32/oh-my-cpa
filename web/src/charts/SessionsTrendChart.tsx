@@ -10,6 +10,7 @@ import { useChartPlugins } from './chartRender';
 import { seriesColor } from './chartTheme';
 import { currentFontStack } from '../theme/fontLibrary';
 import { useT } from '../i18n';
+import { formatUsdAmount } from './usdFormat';
 import { formatTokens as formatTokensStyled, formatTokensFull } from '../types/tokenDisplay';
 import { useTokenDisplayStyle } from '../types/tokenDisplayContext';
 import type { SessionsSeriesPoint } from '../types/sessions';
@@ -20,6 +21,8 @@ export interface SessionsTrendChartProps {
   height?: number;
   /** Hourly buckets carry wall-clock hour keys; the axis labels switch to times. */
   granularity?: 'day' | 'hour';
+  /** What the stacks add up to: raw tokens or their read-time cost estimate. */
+  metric?: 'tokens' | 'cost';
 }
 
 /** The remainder bucket's key: several minor series folded into one grey stack. */
@@ -56,7 +59,7 @@ const xPaddingInner = (points: number): number => {
   return Math.max(0.2, Math.min(0.55, 1 - column / band));
 };
 
-export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, height = 280, granularity = 'day' }) => {
+export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, height = 280, granularity = 'day', metric = 'tokens' }) => {
   const { theme } = useTheme();
   const isReducedMotion = usePrefersReducedMotion();
   const animate = resolveChartAnimation(isReducedMotion);
@@ -88,7 +91,7 @@ export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, 
   }, [points, granularity]);
 
 
-  const data = React.useMemo(() => points.map((point) => ({ ...point, value: point.tokens })), [points]);
+  const data = React.useMemo(() => points.map((point) => ({ ...point, value: metric === 'cost' ? point.costUsd : point.tokens })), [points, metric]);
 
   return (
     <ChartMount>
@@ -138,15 +141,17 @@ export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, 
               // The bucket's total leads the readout: the stack shows the split,
               // the uncoloured row answers what the whole column adds up to.
               const total = items.reduce((sum, item) => sum + item.value, 0);
+              const amount = (value: number) => (metric === 'cost' ? `$${value.toFixed(2)}` : formatTokensStyled(value, tokenStyle));
+              const exactAmount = (value: number) => (metric === 'cost' ? `$${value.toFixed(4)}` : formatTokensFull(value));
               return renderChartTooltip(
                 context?.title ?? '',
                 [
-                  { name: t('sessions.chart.total'), value: formatTokensStyled(total, tokenStyle), exact: formatTokensFull(total) },
+                  { name: t('sessions.chart.total'), value: amount(total), exact: exactAmount(total) },
                 ].concat(items.map((item) => ({
                   name: item.name,
                   color: item.color,
-                  value: formatTokensStyled(item.value, tokenStyle),
-                  exact: formatTokensFull(item.value),
+                  value: amount(item.value),
+                  exact: exactAmount(item.value),
                 }))),
               );
             },
@@ -160,7 +165,7 @@ export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, 
             labelFontSize: 10,
           },
           y: {
-            labelFormatter: (value: number) => formatTokensStyled(value, tokenStyle),
+            labelFormatter: (value: number) => (metric === 'cost' ? formatUsdAmount(value) : formatTokensStyled(value, tokenStyle)),
             labelFontFamily: currentFontStack('mono'),
             labelFontSize: 10,
           },

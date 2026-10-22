@@ -329,7 +329,7 @@
   text-align: right;
 }
 
-.sessions-break-model-tokens {
+.sessions-break-model-value {
   font-size: var(--text-sm);
   text-align: right;
   font-variant-numeric: tabular-nums;

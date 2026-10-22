@@ -105,7 +105,8 @@ const BreakdownClientCard: React.FC<{
   messages: number;
   costUsd: number;
   allPriced: boolean;
-}> = ({ client, rows, tokens, messages, costUsd, allPriced }) => {
+  metric: 'tokens' | 'cost';
+}> = ({ client, rows, tokens, messages, costUsd, allPriced, metric }) => {
   const t = useT();
   const { style } = useTokenDisplayStyle();
   const fmtTokens = React.useCallback((value: number) => formatTokens(value, style), [style]);
@@ -118,12 +119,15 @@ const BreakdownClientCard: React.FC<{
         <span className="sessions-break-client-name"><ClientMark client={client} />{client}</span>
         <span className="sessions-break-client-meta">
           <span>{messages} {t('sessions.messages')}</span>
-          <span>{allPriced ? formatUsd(costUsd) : '—'}</span>
-          <span className="sessions-break-client-tokens mono">{fmtTokens(tokens)}</span>
+          {metric === 'cost'
+            ? <span>{allPriced ? formatUsd(costUsd) : '—'}</span>
+            : <span className="sessions-break-client-tokens mono">{fmtTokens(tokens)}</span>}
         </span>
       </div>
       {visible.map((row) => {
-        const share = tokens > 0 ? row.tokens / tokens : 0;
+        const value = metric === 'cost' ? row.cost_usd : row.tokens;
+        const total = metric === 'cost' ? costUsd : tokens;
+        const share = total > 0 ? value / total : 0;
         return (
           <div key={row.model} className="sessions-break-model">
             <span className="sessions-break-model-name mono" title={row.model}><ModelMark model={row.model} size={13} />{row.model}</span>
@@ -131,7 +135,11 @@ const BreakdownClientCard: React.FC<{
               <span className="sessions-break-model-fill" style={{ width: `${Math.max(share * 100, 1.5)}%` }} />
             </span>
             <span className="sessions-break-model-pct mono">{(share * 100).toFixed(0)}%</span>
-            <span className="sessions-break-model-tokens mono">{fmtTokens(row.tokens)}</span>
+            <span className="sessions-break-model-value mono">
+              {metric === 'cost'
+                ? (row.priced ? formatUsd(row.cost_usd) : '—')
+                : fmtTokens(row.tokens)}
+            </span>
           </div>
         );
       })}
@@ -150,7 +158,7 @@ const BreakdownClientCard: React.FC<{
   );
 };
 
-const ClientBreakdown: React.FC<{ models?: SessionModelRow[] }> = ({ models }) => {
+const ClientBreakdown: React.FC<{ models?: SessionModelRow[]; metric?: 'tokens' | 'cost' }> = ({ models, metric = 'tokens' }) => {
   const groups = React.useMemo(() => {
     const byClient = new Map<string, SessionModelRow[]>();
     for (const row of models ?? []) {
@@ -184,6 +192,7 @@ const ClientBreakdown: React.FC<{ models?: SessionModelRow[] }> = ({ models }) =
           messages={group.messages}
           costUsd={group.costUsd}
           allPriced={group.allPriced}
+          metric={metric}
         />
       ))}
     </div>
@@ -199,6 +208,7 @@ export const SessionsPage: React.FC = () => {
   const rangePref = usePreference<SessionsRange>(SESSIONS_RANGE_PREFERENCE, DEFAULT_SESSIONS_RANGE, parseSessionsRange);
   const range = rangePref.value;
   const [seriesMode, setSeriesMode] = React.useState<SessionsSeriesMode>(DEFAULT_SESSIONS_SERIES_MODE);
+  const [metric, setMetric] = React.useState<'tokens' | 'cost'>('tokens');
   const [refreshing, setRefreshing] = React.useState(false);
   const rangeParam = sessionsRangeParam(range);
 
@@ -219,6 +229,7 @@ export const SessionsPage: React.FC = () => {
                 date: row.date,
                 series: row.name,
                 tokens: row.tokens,
+                costUsd: row.cost_usd,
               }));
               // Fold the long tail into one grey remainder: past the series
               // slots the hue wheel repeats, and a dozen pale stacks read as
@@ -446,7 +457,7 @@ export const SessionsPage: React.FC = () => {
           </div>
           <TokenCompositionBar mix={todayMix} />
           <MixLegend mix={todayMix} />
-          <ClientBreakdown models={todayData?.models} />
+          <ClientBreakdown models={todayData?.models} metric={metric} />
         </section>
       )}
       {chartPoints.length > 0 && (
@@ -458,6 +469,15 @@ export const SessionsPage: React.FC = () => {
               value={seriesMode}
               onChange={(value) => setSeriesMode(value as SessionsSeriesMode)}
               aria-label={t('sessions.chart.mode')}
+            />
+            <Segmented
+              options={[
+                { label: t('sessions.metric.tokens'), value: 'tokens' },
+                { label: t('sessions.metric.cost'), value: 'cost' },
+              ]}
+              value={metric}
+              onChange={(value) => setMetric(value as 'tokens' | 'cost')}
+              aria-label={t('sessions.metric.label')}
             />
           </div>
           <div
@@ -471,7 +491,7 @@ export const SessionsPage: React.FC = () => {
           >
             {series.isError
               ? <LoadFailure title={t('sessions.daily')} onRetry={() => void series.refetch()} />
-              : <SessionsTrendChart points={chartPoints} granularity={range === 'today' ? 'hour' : 'day'} />}
+              : <SessionsTrendChart points={chartPoints} granularity={range === 'today' ? 'hour' : 'day'} metric={metric} />}
           </div>
           {windowDates.length > 0 && range === 'all' && (
             <div className="sessions-window" data-testid="sessions-window">
@@ -503,7 +523,7 @@ export const SessionsPage: React.FC = () => {
       {range !== 'today' && data && data.models && data.models.length > 0 && (
         <section className="sessions-section">
           <h2>{t('sessions.breakdown')}</h2>
-          <ClientBreakdown models={data.models} />
+          <ClientBreakdown models={data.models} metric={metric} />
         </section>
       )}
       {range !== 'today' && clients.data && clients.data.clients && clients.data.clients.length > 0 && (

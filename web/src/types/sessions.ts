@@ -74,6 +74,7 @@ export interface SessionsSeriesPoint {
   date: string;
   series: string;
   tokens: number;
+  costUsd: number;
 }
 
 export interface SessionsSeriesRow {
