@@ -726,6 +726,8 @@ export const MS: Readonly<Record<string, string>> = {
   "sessions.daily": "Penggunaan harian",
   "sessions.models": "Model",
   "sessions.breakdown": "Breakdown",
+  "sessions.breakdown.more": "Show {count} more",
+  "sessions.breakdown.less": "Collapse",
   "sessions.clients": "Klien dikesan",
   "sessions.col.model": "Model",
   "sessions.col.client": "Klien",

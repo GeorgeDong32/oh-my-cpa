@@ -19,8 +19,6 @@ export interface SessionsTrendChartProps {
   height?: number;
   /** Hourly buckets carry wall-clock hour keys; the axis labels switch to times. */
   granularity?: 'day' | 'hour';
-  /** Show a draggable x slider, seeded to the most recent 30 buckets. */
-  slider?: boolean;
 }
 
 /** The remainder bucket's key: several minor series folded into one grey stack. */
@@ -57,7 +55,7 @@ const xPaddingInner = (points: number): number => {
   return Math.max(0.2, Math.min(0.55, 1 - column / band));
 };
 
-export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, height = 280, granularity = 'day', slider = false }) => {
+export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, height = 280, granularity = 'day' }) => {
   const { theme } = useTheme();
   const isReducedMotion = usePrefersReducedMotion();
   const animate = resolveChartAnimation(isReducedMotion);
@@ -87,15 +85,6 @@ export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, 
     return span > 92 ? 'YY-MM' : 'MM-DD';
   }, [points, granularity]);
 
-  // The slider seeds to the most recent ~30 buckets: an all-time window opens
-  // readable, and dragging the thumb walks back through history. Values are
-  // ratios of the domain, so the window start is (1 - 30/N).
-  const sliderSeed = React.useMemo(() => {
-    if (!slider) return undefined;
-    const dateCount = new Set(points.map((point) => point.date)).size;
-    if (dateCount <= 30) return undefined;
-    return [Math.max(0, 1 - 30 / dateCount), 1] as [number, number];
-  }, [points, slider]);
 
   const data = React.useMemo(() => points.map((point) => ({ ...point, value: point.tokens })), [points]);
 
@@ -111,7 +100,6 @@ export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, 
         animation={animate}
         plugins={plugins}
         onReady={onReady}
-        {...(sliderSeed ? { slider: { x: { values: sliderSeed } } } : {})}
         scale={{
           color: { range: seriesNames.map(colorOf) },
           // Padding keeps the column a column instead of a full-width slab.
@@ -122,7 +110,6 @@ export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, 
           x: { paddingInner: xPaddingInner(points.length), paddingOuter: 0.18 },
         }}
         interaction={{
-          ...(sliderSeed ? { sliderFilter: true } : {}),
           // The tooltip is configured on the *interaction*, not on the mark:
           // G2 reads `render` from the interaction's options — a renderer in
           // the mark's own `tooltip` spec is ignored and the library's default

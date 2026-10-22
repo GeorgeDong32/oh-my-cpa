@@ -726,6 +726,8 @@ export const ZH_HANT: Readonly<Record<string, string>> = {
   "sessions.daily": "每日用量",
   "sessions.models": "模型",
   "sessions.breakdown": "構成",
+  "sessions.breakdown.more": "展開其餘 {count} 個",
+  "sessions.breakdown.less": "收起",
   "sessions.clients": "偵測到的客戶端",
   "sessions.col.model": "模型",
   "sessions.col.client": "客戶端",

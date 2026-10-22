@@ -1,6 +1,6 @@
 import React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Segmented } from 'antd';
+import { Segmented, Slider } from 'antd';
 import { api } from '../../api/client';
 import { useT } from '../../i18n';
 import { useTimeZone } from '../../utils/TimeZoneProvider';
@@ -30,6 +30,10 @@ const SESSIONS_QUERY_KEYS = {
 };
 
 const SERIES_SLOTS = 6;
+
+// The all-time window's default span: history opens on the most recent month
+// and the slider walks further back.
+const ALL_WINDOW_DAYS = 30;
 
 function mixTotal(day: Pick<SessionDay, 'input' | 'output' | 'cache_read' | 'cache_write' | 'reasoning'>): number {
   return day.input + day.output + day.cache_read + day.cache_write + day.reasoning;
@@ -90,10 +94,56 @@ const MixLegend: React.FC<{ mix: SessionTokenMix }> = ({ mix }) => {
  * per model with a share bar and the model's token count. Rows come from the
  * window's per-(client, model) summary rows.
  */
-const ClientBreakdown: React.FC<{ models?: SessionModelRow[] }> = ({ models }) => {
+const BREAKDOWN_VISIBLE = 3;
+
+/** One client card; models past the first three fold behind a toggle. */
+const BreakdownClientCard: React.FC<{
+  client: string;
+  rows: SessionModelRow[];
+  tokens: number;
+  messages: number;
+  costUsd: number;
+  allPriced: boolean;
+}> = ({ client, rows, tokens, messages, costUsd, allPriced }) => {
   const t = useT();
   const { style } = useTokenDisplayStyle();
-  const fmtTokens = React.useCallback((tokens: number) => formatTokens(tokens, style), [style]);
+  const fmtTokens = React.useCallback((value: number) => formatTokens(value, style), [style]);
+  const [expanded, setExpanded] = React.useState(false);
+  const visible = expanded ? rows : rows.slice(0, BREAKDOWN_VISIBLE);
+  const hidden = rows.length - visible.length;
+  return (
+    <div className="sessions-break-client">
+      <div className="sessions-break-client-head">
+        <span className="sessions-break-client-name"><ClientMark client={client} />{client}</span>
+        <span className="sessions-break-client-meta">
+          <span>{messages} {t('sessions.messages')}</span>
+          <span>{allPriced ? formatUsd(costUsd) : '—'}</span>
+          <span className="sessions-break-client-tokens mono">{fmtTokens(tokens)}</span>
+        </span>
+      </div>
+      {visible.map((row) => {
+        const share = tokens > 0 ? row.tokens / tokens : 0;
+        return (
+          <div key={row.model} className="sessions-break-model">
+            <span className="sessions-break-model-name mono" title={row.model}><ModelMark model={row.model} size={13} />{row.model}</span>
+            <span className="sessions-break-model-bar" aria-hidden>
+              <span className="sessions-break-model-fill" style={{ width: `${Math.max(share * 100, 1.5)}%` }} />
+            </span>
+            <span className="sessions-break-model-pct mono">{(share * 100).toFixed(0)}%</span>
+            <span className="sessions-break-model-tokens mono">{fmtTokens(row.tokens)}</span>
+          </div>
+        );
+      })}
+      {rows.length > BREAKDOWN_VISIBLE && (
+        <button type="button" className="sessions-break-toggle" onClick={() => setExpanded((value) => !value)}>
+          {expanded ? t('sessions.breakdown.less') : t('sessions.breakdown.more', { count: hidden })}
+        </button>
+      )}
+    </div>
+  );
+};
+
+const ClientBreakdown: React.FC<{ models?: SessionModelRow[] }> = ({ models }) => {
   const groups = React.useMemo(() => {
     const byClient = new Map<string, SessionModelRow[]>();
     for (const row of models ?? []) {
@@ -119,29 +169,15 @@ const ClientBreakdown: React.FC<{ models?: SessionModelRow[] }> = ({ models }) =
   return (
     <div className="sessions-break" data-testid="sessions-breakdown">
       {groups.map((group) => (
-        <div key={group.client} className="sessions-break-client">
-          <div className="sessions-break-client-head">
-            <span className="sessions-break-client-name"><ClientMark client={group.client} />{group.client}</span>
-            <span className="sessions-break-client-meta">
-              <span>{group.messages} {t('sessions.messages')}</span>
-              <span>{group.allPriced ? formatUsd(group.costUsd) : '—'}</span>
-              <span className="sessions-break-client-tokens mono">{fmtTokens(group.tokens)}</span>
-            </span>
-          </div>
-          {group.rows.map((row) => {
-            const share = group.tokens > 0 ? row.tokens / group.tokens : 0;
-            return (
-              <div key={row.model} className="sessions-break-model">
-                <span className="sessions-break-model-name mono" title={row.model}><ModelMark model={row.model} size={13} />{row.model}</span>
-                <span className="sessions-break-model-bar" aria-hidden>
-                  <span className="sessions-break-model-fill" style={{ width: `${Math.max(share * 100, 1.5)}%` }} />
-                </span>
-                <span className="sessions-break-model-pct mono">{(share * 100).toFixed(0)}%</span>
-                <span className="sessions-break-model-tokens mono">{fmtTokens(row.tokens)}</span>
-              </div>
-            );
-          })}
-        </div>
+        <BreakdownClientCard
+          key={group.client}
+          client={group.client}
+          rows={group.rows}
+          tokens={group.tokens}
+          messages={group.messages}
+          costUsd={group.costUsd}
+          allPriced={group.allPriced}
+        />
       ))}
     </div>
   );
@@ -239,10 +275,27 @@ export const SessionsPage: React.FC = () => {
   const todayData = range === 'today' ? data : undefined;
   const todayMix = todayData?.tokens;
 
+  // The all-time window opens on the most recent 30 days and a slider walks
+  // the window start back through history. The slice lives here, not in the
+  // chart: a React-side window lets the plot fill its visible days exactly —
+  // axis and bars both — instead of G2's slider filtering rows while the band
+  // domain keeps every empty slot.
+  const [windowStart, setWindowStart] = React.useState<number | null>(null);
+  React.useEffect(() => setWindowStart(null), [range]);
   const chartPoints = React.useMemo(() => {
     const rows = series.data ?? [];
-    return rows;
-  }, [series.data]);
+    if (range !== 'all') return rows;
+    const dates = [...new Set(rows.map((row) => row.date))].sort();
+    if (dates.length <= ALL_WINDOW_DAYS) return rows;
+    const latest = dates.length - ALL_WINDOW_DAYS;
+    const start = Math.min(windowStart ?? latest, latest);
+    const from = dates[Math.max(0, start)];
+    return rows.filter((row) => row.date >= from);
+  }, [series.data, range, windowStart]);
+  const windowDates = React.useMemo(() => {
+    if (range !== 'all') return [];
+    return [...new Set((series.data ?? []).map((row) => row.date))].sort();
+  }, [series.data, range]);
 
   // Per-client window totals for the detected-clients grid: the headline
   // number follows the selected range; files/entries/last-scan stay lifetime
@@ -368,8 +421,24 @@ export const SessionsPage: React.FC = () => {
           <div className="sessions-chart" data-testid="sessions-daily">
             {series.isError
               ? <LoadFailure title={t('sessions.daily')} onRetry={() => void series.refetch()} />
-              : <SessionsTrendChart points={chartPoints} granularity={range === 'today' ? 'hour' : 'day'} slider={range === 'all'} />}
+              : <SessionsTrendChart points={chartPoints} granularity={range === 'today' ? 'hour' : 'day'} />}
           </div>
+          {windowDates.length > ALL_WINDOW_DAYS && (
+            <div className="sessions-window" data-testid="sessions-window">
+              <Slider
+                className="sessions-window-slider"
+                min={0}
+                max={windowDates.length - ALL_WINDOW_DAYS}
+                value={Math.min(windowStart ?? windowDates.length - ALL_WINDOW_DAYS, windowDates.length - ALL_WINDOW_DAYS)}
+                onChange={(value) => setWindowStart(value)}
+                tooltip={{ formatter: (value) => windowDates[Math.max(0, Math.min(value ?? 0, windowDates.length - 1))] ?? '' }}
+              />
+              <div className="sessions-window-labels mono">
+                <span>{windowDates[0]}</span>
+                <span>{windowDates[windowDates.length - 1]}</span>
+              </div>
+            </div>
+          )}
         </section>
       )}
       {/* The today range's breakdown IS the today card's; repeating it as a

@@ -335,6 +335,37 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ── Folded model rows ──────────────────────────────────────────────────── */
+.sessions-break-toggle {
+  align-self: flex-start;
+  margin: 2px 0 0 14px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.sessions-break-toggle:hover {
+  text-decoration: underline;
+}
+
+/* ── All-time window slider ─────────────────────────────────────────────── */
+.sessions-window {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 16px 4px;
+}
+
+.sessions-window-labels {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
 /* ── Chart section ──────────────────────────────────────────────────────── */
 .sessions-chart-head {
   display: flex;

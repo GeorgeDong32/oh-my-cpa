@@ -901,6 +901,8 @@ const DICT: Record<string, [string, string]> = {
   'sessions.mix.reasoning': ['推理', 'Reasoning'],
   'sessions.mix.cache_write': ['缓存写', 'Cache write'],
   'sessions.breakdown': ['构成', 'Breakdown'],
+  'sessions.breakdown.more': ['展开其余 {count} 个', 'Show {count} more'],
+  'sessions.breakdown.less': ['收起', 'Collapse'],
   'sessions.client.files': ['文件', 'Files'],
   'sessions.client.entries': ['记录', 'Entries'],
   'sessions.client.unreadable': ['不可读', 'Unreadable'],
