@@ -80,6 +80,8 @@ var QUERY_READABLE_TABLES = map[string][]string{
 	"session_files":                 nil,
 	"session_messages":              {"agent"},
 	"session_rebuild":               nil,
+	"session_bucket_cache":          nil,
+	"session_bucket_rebuild":        nil,
 	"session_activity":              nil,
 }
 

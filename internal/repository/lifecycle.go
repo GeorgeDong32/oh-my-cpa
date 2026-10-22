@@ -87,6 +87,8 @@ var TABLE_LIFECYCLES = map[string]TableLifecycle{
 	"session_files":                 {Kind: LifecyclePermanent, Reason: "scan watermarks; one row per source file, follows the file's own life"},
 	"session_messages":              {Kind: LifecyclePermanent, Reason: "message-level usage facts; rows follow their source files (clients prune their own transcripts)"},
 	"session_rebuild":               {Kind: LifecycleOwnerBounded, Reason: "the activity rebuild dirty set; written and cleared by the scan's own transactions"},
+	"session_bucket_cache":          {Kind: LifecyclePermanent, Reason: "pre-aggregated bucket totals; folded from session_messages and rebuildable from it"},
+	"session_bucket_rebuild":        {Kind: LifecycleOwnerBounded, Reason: "the bucket-fold dirty set; written and cleared by the scan's own transactions"},
 	"session_activity":              {Kind: LifecyclePermanent, Reason: "sessionized activity buckets; follows the source files like session_messages"},
 	"usage_facts_daily":             {Kind: LifecyclePermanent, Reason: "the dashboard's history at the daily grain"},
 	"audit_events":                  {Kind: LifecyclePermanent, Reason: "the audit trail grows with operator actions, not traffic"},

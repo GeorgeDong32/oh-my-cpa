@@ -3,6 +3,8 @@ package sessionstats
 import (
 	"context"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -32,6 +34,12 @@ type Store interface {
 	DropFile(ctx context.Context, client, path string) (touchedSessions map[string]struct{}, err error)
 	// DirtySessions lists the sessions awaiting an activity rebuild.
 	DirtySessions(ctx context.Context) (map[string]map[string]struct{}, error)
+	// DirtyBuckets lists the buckets awaiting a cache fold.
+	DirtyBuckets(ctx context.Context) ([]int64, error)
+	// FoldBucketCache recomputes the given buckets into the read cache.
+	FoldBucketCache(ctx context.Context, buckets []int64) error
+	// MarkAllBucketsDirtyIfCacheEmpty seeds the first fold after an upgrade.
+	MarkAllBucketsDirtyIfCacheEmpty(ctx context.Context) error
 	// ReplaceSessionActivity rebuilds one session's activity rows and clears
 	// its dirty mark — one transaction.
 	ReplaceSessionActivity(ctx context.Context, client, sessionID string, buckets []ActivityBucket) error
@@ -81,7 +89,9 @@ type Service struct {
 	logger   Logger
 	clock    func() time.Time
 
-	wake chan struct{}
+	wake     chan struct{}
+	scanMu   sync.Mutex
+	scanning atomic.Bool
 }
 
 // Logger matches the pricing service's minimal surface.
@@ -193,12 +203,34 @@ func (s *Service) TriggerScan() bool {
 }
 
 // ScanOnce walks every parser's roots once. A parser failure marks its
-// client unreadable for this pass and never fails the scan.
+// client unreadable for this pass and never fails the scan. Concurrent
+// callers serialize: a manual refresh waits for an in-flight scan instead of
+// racing it.
 func (s *Service) ScanOnce(ctx context.Context) {
+	s.scanMu.Lock()
+	defer s.scanMu.Unlock()
+	s.scanning.Store(true)
+	defer s.scanning.Store(false)
+	if err := s.store.MarkAllBucketsDirtyIfCacheEmpty(ctx); err != nil {
+		s.logger.Warn("bucket cache upgrade seed failed", "error", err)
+	}
 	for _, parser := range s.parsers {
 		s.scanClient(ctx, parser)
 	}
 	s.rebuildActivity(ctx)
+	s.foldBucketCache(ctx)
+}
+
+// IsScanning reports whether a scan is in flight.
+func (s *Service) IsScanning() bool { return s.scanning.Load() }
+
+// RefreshNow runs a scan synchronously: it drains an in-flight scan first,
+// then scans once, so the caller returns to a state at least as fresh as the
+// moment of the call. The context bounds the wait and the scan.
+func (s *Service) RefreshNow(ctx context.Context) {
+	s.scanMu.Lock()
+	s.scanMu.Unlock()
+	s.ScanOnce(ctx)
 }
 
 // parserVersion prefixes every watermark's prefix_hash: fixing a parser's
@@ -336,6 +368,23 @@ func touchedSessionsOf(_ int64, entries []UnifiedEntry) map[string]struct{} {
 		sessions[entry.SessionID] = struct{}{}
 	}
 	return sessions
+}
+
+// foldBucketCache refolds the buckets this scan changed into the read cache.
+// A failed fold leaves the dirty rows in place, so the next scan retries —
+// the same crash-safety the activity rebuild's dirty set has.
+func (s *Service) foldBucketCache(ctx context.Context) {
+	buckets, err := s.store.DirtyBuckets(ctx)
+	if err != nil {
+		s.logger.Warn("session bucket dirty set unreadable", "error", err)
+		return
+	}
+	if len(buckets) == 0 {
+		return
+	}
+	if err := s.store.FoldBucketCache(ctx, buckets); err != nil {
+		s.logger.Warn("session bucket cache fold failed", "error", err)
+	}
 }
 
 func (s *Service) rebuildActivity(ctx context.Context) {

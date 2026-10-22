@@ -66,3 +66,27 @@ export interface SessionsModels {
 export interface SessionsClients {
   clients?: SessionClientRow[];
 }
+
+/** One flat chart row: a calendar day, a series name (client or model, or the
+ * folded remainder), and the day's total tokens for that series. */
+export interface SessionsSeriesPoint {
+  date: string;
+  series: string;
+  tokens: number;
+}
+
+export interface SessionsSeriesRow {
+  date: string;
+  name: string;
+  tokens: number;
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+  reasoning: number;
+  cost_usd: number;
+}
+
+export interface SessionsSeries {
+  series?: SessionsSeriesRow[];
+}

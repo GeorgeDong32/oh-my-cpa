@@ -1237,12 +1237,20 @@ export const api = {
     return request<PricingAttention>('/pricing/attention', { method: 'GET' });
   },
 
-  async getSessionsSummary(days: number, tz: string): Promise<SessionsSummary> {
+  async getSessionsSummary(days: number | string, tz: string): Promise<SessionsSummary> {
     return request<SessionsSummary>(`/sessions/summary?${new URLSearchParams({ days: String(days), tz })}`, { method: 'GET' });
   },
 
-  async getSessionsDaily(days: number, tz: string): Promise<SessionsDaily> {
+  async getSessionsDaily(days: number | string, tz: string): Promise<SessionsDaily> {
     return request<SessionsDaily>(`/sessions/daily?${new URLSearchParams({ days: String(days), tz })}`, { method: 'GET' });
+  },
+
+  async getSessionsSeries(days: number | string, split: 'client' | 'model', tz: string): Promise<{ series?: import('../types/sessions').SessionsSeriesRow[] }> {
+    return request<import('../types/sessions').SessionsSeries>(`/sessions/series?${new URLSearchParams({ days: String(days), split, tz })}`, { method: 'GET' });
+  },
+
+  async refreshSessions(): Promise<{ refreshed: boolean }> {
+    return request<{ refreshed: boolean }>('/sessions/refresh', { method: 'POST' });
   },
 
   async getSessionsModels(days: number): Promise<{ models?: import('../types/sessions').SessionModelRow[] }> {

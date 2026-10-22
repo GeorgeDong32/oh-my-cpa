@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -29,9 +30,12 @@ type SessionStatsReader interface {
 	BucketSessionCounts(ctx context.Context, fromBucket int64) (map[int64]int64, error)
 }
 
-// SessionStatsScanner triggers the background scan loop.
+// SessionStatsScanner triggers the background scan loop; RefreshNow runs
+// one synchronously (draining an in-flight scan first).
 type SessionStatsScanner interface {
 	TriggerScan() bool
+	RefreshNow(ctx context.Context)
+	IsScanning() bool
 }
 
 const sessionsMaxDays = 365
@@ -53,16 +57,67 @@ func sessionsTimezone(request *http.Request) (*time.Location, string) {
 	return zone, ""
 }
 
-func sessionsDays(request *http.Request) (int, string) {
+// sessionsRange is the window a sessions read covers: a rolling day count,
+// the viewer's calendar today, or the whole stored history.
+type sessionsRange struct {
+	days  int  // rolling window; 0 means not a rolling range
+	today bool // from the start of the viewer's local day
+	all   bool // no lower bound
+}
+
+func sessionsRangeOf(request *http.Request) (sessionsRange, string) {
 	raw := strings.TrimSpace(request.URL.Query().Get("days"))
-	if raw == "" {
-		return 30, ""
+	switch raw {
+	case "", "30":
+		return sessionsRange{days: 30}, ""
+	case "today":
+		return sessionsRange{today: true}, ""
+	case "all":
+		return sessionsRange{all: true}, ""
 	}
 	days, err := strconv.Atoi(raw)
 	if err != nil || days < 1 || days > sessionsMaxDays {
+		return sessionsRange{}, "days must be an integer between 1 and 365, or today, or all"
+	}
+	return sessionsRange{days: days}, ""
+}
+
+// fromBucket is the window's lower bound on the 15-minute grid; 0 is unbounded.
+func (r sessionsRange) fromBucket(now time.Time, zone *time.Location) int64 {
+	switch {
+	case r.all:
+		return 0
+	case r.today:
+		// The viewer's calendar day start — Truncate would anchor on UTC.
+		local := time.Now().In(zone)
+		start := time.Date(local.Year(), local.Month(), local.Day(), 0, 0, 0, 0, zone)
+		return sessionstats.Bucket15MS(start.UnixMilli())
+	default:
+		return sessionstats.Bucket15MS(now.AddDate(0, 0, -r.days).UnixMilli())
+	}
+}
+
+// windowLabel is the days parameter the demo dataset and older callers use.
+func (r sessionsRange) windowLabel() string {
+	switch {
+	case r.today:
+		return "today"
+	case r.all:
+		return "all"
+	default:
+		return strconv.Itoa(r.days)
+	}
+}
+
+func sessionsDays(request *http.Request) (int, string) {
+	window, errText := sessionsRangeOf(request)
+	if errText != "" {
+		return 0, errText
+	}
+	if window.today || window.all {
 		return 0, "days must be an integer between 1 and 365"
 	}
-	return days, ""
+	return window.days, ""
 }
 
 type sessionsTotals struct {
@@ -227,12 +282,13 @@ func (h *Handler) getSessionsSummary(writer http.ResponseWriter, request *http.R
 		writeError(writer, http.StatusBadRequest, zoneErr)
 		return
 	}
-	days, daysErr := sessionsDays(request)
+	window, daysErr := sessionsRangeOf(request)
 	if daysErr != "" {
 		writeError(writer, http.StatusBadRequest, daysErr)
 		return
 	}
-	fromBucket := sessionstats.Bucket15MS(time.Now().AddDate(0, 0, -days).UnixMilli())
+	zoneAny := zone
+	fromBucket := window.fromBucket(time.Now(), zoneAny)
 	rows, err := reader.SummaryRows(request.Context(), fromBucket)
 	if err != nil {
 		writeInternalError(writer, err)
@@ -300,7 +356,7 @@ func (h *Handler) getSessionsSummary(writer http.ResponseWriter, request *http.R
 		}
 		summary.Today = day
 	}
-	summary.Sessions = distinctWindowSessions(request.Context(), h, days)
+	summary.Sessions = distinctWindowSessionsRange(request.Context(), h, window, zone)
 	writeJSON(writer, http.StatusOK, summary)
 }
 
@@ -334,12 +390,12 @@ func (h *Handler) getSessionsDaily(writer http.ResponseWriter, request *http.Req
 		writeError(writer, http.StatusBadRequest, zoneErr)
 		return
 	}
-	days, daysErr := sessionsDays(request)
+	window, daysErr := sessionsRangeOf(request)
 	if daysErr != "" {
 		writeError(writer, http.StatusBadRequest, daysErr)
 		return
 	}
-	fromBucket := sessionstats.Bucket15MS(time.Now().AddDate(0, 0, -days).UnixMilli())
+	fromBucket := window.fromBucket(time.Now(), zone)
 	rows, err := reader.SummaryRows(request.Context(), fromBucket)
 	if err != nil {
 		writeInternalError(writer, err)
@@ -361,6 +417,116 @@ func (h *Handler) getSessionsDaily(writer http.ResponseWriter, request *http.Req
 	writeJSON(writer, http.StatusOK, response)
 }
 
+// getSessionsSeries answers the chart's split reads: per-day rows keyed by
+// client or model, from the bucket cache. The cost stays a read-time
+// estimate like every sessions number.
+func (h *Handler) getSessionsSeries(writer http.ResponseWriter, request *http.Request) {
+	if h.repo == nil {
+		writeError(writer, http.StatusServiceUnavailable, "database is unavailable")
+		return
+	}
+	zone, zoneErr := sessionsTimezone(request)
+	if zoneErr != "" {
+		writeError(writer, http.StatusBadRequest, zoneErr)
+		return
+	}
+	window, daysErr := sessionsRangeOf(request)
+	if daysErr != "" {
+		writeError(writer, http.StatusBadRequest, daysErr)
+		return
+	}
+	split := strings.TrimSpace(request.URL.Query().Get("split"))
+	if split != "client" && split != "model" {
+		writeError(writer, http.StatusBadRequest, "split must be client or model")
+		return
+	}
+	fromBucket := window.fromBucket(time.Now(), zone)
+	rows, err := h.repo.BucketSeriesRows(request.Context(), fromBucket, split)
+	if err != nil {
+		writeInternalError(writer, err)
+		return
+	}
+	var prices []pricing.ModelPrice
+	if h.pricing != nil {
+		if book, err := h.pricing.ListPrices(request.Context()); err == nil {
+			prices = book
+		}
+	}
+	type seriesKey struct {
+		date string
+		name string
+	}
+	grouped := map[seriesKey]*sessionDayDTO{}
+	for _, row := range rows {
+		date := dayKey(row.Bucket15MS, zone)
+		name := row.Client
+		if split == "model" {
+			name = row.Model
+		}
+		day := grouped[seriesKey{date, name}]
+		if day == nil {
+			day = &sessionDayDTO{Date: date}
+			grouped[seriesKey{date, name}] = day
+		}
+		day.Input += row.Input
+		day.Output += row.Output
+		day.CacheRead += row.CacheRead
+		day.CacheWrite += row.CacheWrite
+		day.Reasoning += row.Reasoning
+		day.Messages += row.Messages
+	}
+	type seriesRow struct {
+		Date       string  `json:"date"`
+		Name       string  `json:"name"`
+		Tokens     int64   `json:"tokens"`
+		Input      int64   `json:"input"`
+		Output     int64   `json:"output"`
+		CacheRead  int64   `json:"cache_read"`
+		CacheWrite int64   `json:"cache_write"`
+		Reasoning  int64   `json:"reasoning"`
+		CostUSD    float64 `json:"cost_usd"`
+	}
+	response := struct {
+		Series []seriesRow `json:"series"`
+	}{}
+	keys := make([]seriesKey, 0, len(grouped))
+	for key := range grouped {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].date != keys[j].date {
+			return keys[i].date < keys[j].date
+		}
+		return keys[i].name < keys[j].name
+	})
+	for _, key := range keys {
+		day := grouped[key]
+		row := seriesRow{Date: key.date, Name: key.name,
+			Input: day.Input, Output: day.Output, CacheRead: day.CacheRead,
+			CacheWrite: day.CacheWrite, Reasoning: day.Reasoning,
+		}
+		row.Tokens = row.Input + row.Output + row.CacheRead + row.CacheWrite + row.Reasoning
+		if nanos, _ := estimateSessionCost(rowsForSeries(rows, split, key.name, key.date, zone), prices); nanos > 0 {
+			row.CostUSD = float64(nanos) / 1e9
+		}
+		response.Series = append(response.Series, row)
+	}
+	writeJSON(writer, http.StatusOK, response)
+}
+
+func rowsForSeries(rows []sessionstats.AggregatedRow, split, name, date string, zone *time.Location) []sessionstats.AggregatedRow {
+	var filtered []sessionstats.AggregatedRow
+	for _, row := range rows {
+		if dayKey(row.Bucket15MS, zone) != date {
+			continue
+		}
+		if (split == "client" && row.Client == name) || (split == "model" && row.Model == name) {
+			filtered = append(filtered, row)
+		}
+	}
+	return filtered
+}
+
 // getSessionsModels is the model table's own read: per-model tokens, share
 // and estimated cost across the window.
 func (h *Handler) getSessionsModels(writer http.ResponseWriter, request *http.Request) {
@@ -368,12 +534,17 @@ func (h *Handler) getSessionsModels(writer http.ResponseWriter, request *http.Re
 	if !ok {
 		return
 	}
-	days, daysErr := sessionsDays(request)
+	zone, zoneErr := sessionsTimezone(request)
+	if zoneErr != "" {
+		writeError(writer, http.StatusBadRequest, zoneErr)
+		return
+	}
+	window, daysErr := sessionsRangeOf(request)
 	if daysErr != "" {
 		writeError(writer, http.StatusBadRequest, daysErr)
 		return
 	}
-	fromBucket := sessionstats.Bucket15MS(time.Now().AddDate(0, 0, -days).UnixMilli())
+	fromBucket := window.fromBucket(time.Now(), zone)
 	rows, err := reader.SummaryRows(request.Context(), fromBucket)
 	if err != nil {
 		writeInternalError(writer, err)
@@ -472,14 +643,34 @@ func (h *Handler) triggerSessionsRescan(writer http.ResponseWriter, request *htt
 	writeJSON(writer, http.StatusAccepted, map[string]any{"started": true})
 }
 
-func distinctWindowSessions(ctx context.Context, h *Handler, days int) int64 {
+// postSessionsRefresh is the manual refresh: a synchronous incremental scan.
+// It drains an in-flight scan first and returns once the store is at least as
+// fresh as the call — the page reloads its queries on 200 without polling.
+func (h *Handler) postSessionsRefresh(writer http.ResponseWriter, request *http.Request) {
+	if h.sessionScanner == nil {
+		writeError(writer, http.StatusServiceUnavailable, "session statistics are not available")
+		return
+	}
+	if h.cfg.IsDemoMode {
+		writeError(writer, http.StatusForbidden, "session refreshes need the local filesystem and are unavailable in the demonstration")
+		return
+	}
+	wasScanning := h.sessionScanner.IsScanning()
+	h.sessionScanner.RefreshNow(request.Context())
+	if err := h.recordAudit(request, "sessions.refresh", "sessions", "local", "success", map[string]any{"drained_in_flight": wasScanning}); err != nil {
+		writeInternalError(writer, err)
+		return
+	}
+	writeJSON(writer, http.StatusOK, map[string]any{"refreshed": true})
+}
+
+func distinctWindowSessionsRange(ctx context.Context, h *Handler, window sessionsRange, zone *time.Location) int64 {
 	if h.repo == nil {
 		return 0
 	}
-	// Same edge as the token window (now − days) so the sessions tile and its
-	// neighbouring tiles describe one window.
-	from := time.Now().AddDate(0, 0, -days)
-	fromBucket := sessionstats.Bucket15MS(from.UnixMilli())
+	// Same edge as the token window so the sessions tile and its neighbouring
+	// tiles describe one window.
+	fromBucket := window.fromBucket(time.Now(), zone)
 	row := h.repo.SQL().QueryRowContext(ctx, `SELECT COUNT(DISTINCT client || ':' || session_id)
 	 FROM session_activity WHERE bucket_15m >= ?`, fromBucket)
 	var count int64

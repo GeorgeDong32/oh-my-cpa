@@ -201,6 +201,16 @@ session_activity(bucket_15m, client, session_id, ws_key, active_ms, messages,
     each file's row replacement + watermark advance + dirty marking is one
     transaction, so an interrupted scan resumes at a file boundary and is
     idempotent.
+  - **Bucket cache (migration 046)**: the reads do not re-run the dedup CTE
+    per request. `session_bucket_cache` (keyed bucket+client+model+provider+
+    ws_key, token buckets only — costs stay read-time against the live book)
+    is folded at scan time: the same transactions that change
+    `session_messages` mark outgoing and incoming buckets dirty in
+    `session_bucket_rebuild`, and the scan's tail re-folds those buckets
+    idempotently (batched delete+recompute+clear, crash-safe like the
+    activity dirty set). A database upgraded from a pre-cache build seeds all
+    buckets dirty on the next scan when messages exist but the cache is
+    empty. `SummaryRows` and the series reads answer from the cache.
   - A file is re-parsed when mtime or size changed, or when the parser's
     version stamp (stored in the watermark's prefix_hash) differs — a parser
     fix re-parses unchanged files, the upstream message-cache invalidation
@@ -213,6 +223,13 @@ session_activity(bucket_15m, client, session_id, ws_key, active_ms, messages,
     loop. Per-file size cap 512 MiB (upstream caps zed blobs at 32 MiB);
     oversized files are marked `oversized`, skipped and reported. A panicking
     parser is recovered per client and marked, never taking the process down.
+  - Ranges: the `days` parameter accepts rolling day counts plus `today`
+    (the viewer's calendar day) and `all` (unbounded). The daily chart's
+    split reads live on `/sessions/series?split=client|model`, answered from
+    the cache. The manual refresh is `POST /sessions/refresh` — a
+    synchronous incremental scan that drains an in-flight scan first; the
+    page's first-entry state (a store whose scans have never completed)
+    polls the clients read until the first scan lands.
   - Roots resolve from `$HOME`. Per-client environment overrides and
     container root remapping are **not implemented in Batch 1** (single-user
     local deployment is the only current shape); paths are stored as seen —
@@ -486,6 +503,13 @@ the 口径 difference from the gateway dashboard.
   resumption is not ported — OMC's per-file watermark (mtime/size/parser
   version) bounds rescan cost and whole-database reads are idempotent
   through the dedup view.
+- **sessions chart infra**: the daily chart uses `@ant-design/charts`
+  (the console's shared lazy chart stack, with `chartTooltip`'s exact-value
+  rows) rather than porting tokens.ci's hand-rolled SVG paths — the mark
+  differs deliberately too: stacked columns instead of a stacked area,
+  because the sessions window is sparse at its start and an area would draw
+  missing days as data. Colouring is by client or by model (agent is a
+  subagent name here, sparse and meaningless as a colour dimension).
 - **durations**: several Batch 3 lanes do not record durations
   (kilo/micode completed−created, kiro turn spans, zcode sqlite duration)
   — OMC's activity buckets derive from timestamps, and sessionization

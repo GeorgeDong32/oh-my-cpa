@@ -76,28 +76,7 @@
   margin: 0;
 }
 
-.sessions-daily {
-  display: flex;
-  align-items: flex-end;
-  gap: 3px;
-  height: 120px;
-  padding: 8px 0;
-}
 
-.sessions-day {
-  flex: 1;
-  display: flex;
-  align-items: flex-end;
-  height: 100%;
-}
-
-.sessions-day-bar {
-  width: 100%;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  background: var(--accent);
-  opacity: 0.75;
-  min-height: 4px;
-}
 
 .sessions-table {
   width: 100%;
@@ -161,4 +140,60 @@
   .sessions-daily {
     height: 80px;
   }
+}
+
+/* ── Today strip (tokens.ci's ProfileToday reading) ─────────────────────── */
+.sessions-today {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--surface);
+}
+
+.sessions-today-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.sessions-today-head h2 {
+  margin: 0;
+  font-size: var(--text-base);
+}
+
+.sessions-today-total {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.sessions-today-caption {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+/* ── Chart section ──────────────────────────────────────────────────────── */
+.sessions-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.sessions-chart-head h2 {
+  margin: 0;
+  font-size: var(--text-base);
+}
+
+.sessions-chart {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-surface);
+  padding: 12px 8px 4px;
+  background: var(--surface);
 }

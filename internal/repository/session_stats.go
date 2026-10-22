@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/oh-my-cpa/oh-my-cpa/internal/sessionstats"
@@ -77,7 +78,12 @@ func (r *Repository) ReplaceFileEntries(ctx context.Context, watermark sessionst
 		return err
 	}
 	defer tx.Rollback()
-	// The sessions the outgoing rows referenced must be rebuilt too.
+	// The sessions and buckets the outgoing rows referenced must be rebuilt too.
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO session_bucket_rebuild (bucket_15m)
+	 SELECT DISTINCT bucket_15m FROM session_messages WHERE client = ? AND path = ?`,
+		watermark.Client, watermark.Path); err != nil {
+		return fmt.Errorf("mark outgoing buckets dirty: %w", err)
+	}
 	oldSessions, err := deleteSessionFileRows(ctx, tx, watermark.Client, watermark.Path)
 	if err != nil {
 		return err
@@ -95,6 +101,10 @@ func (r *Repository) ReplaceFileEntries(ctx context.Context, watermark sessionst
 			return fmt.Errorf("insert session message: %w", err)
 		}
 		oldSessions[entry.SessionID] = struct{}{}
+		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO session_bucket_rebuild (bucket_15m) VALUES (?)`,
+			sessionstats.Bucket15MS(entry.TimestampMS)); err != nil {
+			return fmt.Errorf("mark incoming bucket dirty: %w", err)
+		}
 	}
 	for sessionID := range oldSessions {
 		if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO session_rebuild (client, session_id) VALUES (?,?)`,
@@ -137,6 +147,11 @@ func (r *Repository) DropFile(ctx context.Context, client, path string) (map[str
 		return nil, err
 	}
 	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO session_bucket_rebuild (bucket_15m)
+	 SELECT DISTINCT bucket_15m FROM session_messages WHERE client = ? AND path = ?`,
+		client, path); err != nil {
+		return nil, fmt.Errorf("mark dropped buckets dirty: %w", err)
+	}
 	touched, err := deleteSessionFileRows(ctx, tx, client, path)
 	if err != nil {
 		return nil, err
@@ -339,4 +354,118 @@ func statusOrOK(status string) string {
 		return "ok"
 	}
 	return status
+}
+
+// DirtyBuckets returns the buckets awaiting a cache fold.
+func (r *Repository) DirtyBuckets(ctx context.Context) ([]int64, error) {
+	rows, err := r.SQL().QueryContext(ctx, `SELECT bucket_15m FROM session_bucket_rebuild ORDER BY bucket_15m`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var buckets []int64
+	for rows.Next() {
+		var bucket int64
+		if err := rows.Scan(&bucket); err != nil {
+			return nil, err
+		}
+		buckets = append(buckets, bucket)
+	}
+	return buckets, rows.Err()
+}
+
+// FoldBucketCache recomputes the given buckets from the deduped view and
+// replaces their cache rows — one transaction per batch, idempotent. A bucket
+// whose messages all vanished deletes its cache rows and inserts nothing.
+func (r *Repository) FoldBucketCache(ctx context.Context, buckets []int64) error {
+	const batch = 256
+	for start := 0; start < len(buckets); start += batch {
+		end := start + batch
+		if end > len(buckets) {
+			end = len(buckets)
+		}
+		if err := r.foldBucketBatch(ctx, buckets[start:end]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Repository) foldBucketBatch(ctx context.Context, buckets []int64) error {
+	tx, err := r.SQL().BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	placeholders := strings.Repeat("?,", len(buckets))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, len(buckets))
+	for i, bucket := range buckets {
+		args[i] = bucket
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM session_bucket_cache WHERE bucket_15m IN (`+placeholders+`)`, args...); err != nil {
+		return fmt.Errorf("clear stale cache rows: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO session_bucket_cache
+	 (bucket_15m, client, model, provider, ws_key, input, output, cache_read, cache_write, reasoning, message_count)
+	 SELECT bucket_15m, client, model, provider, ws_key,
+	  sum(input), sum(output), sum(cache_read), sum(cache_write), sum(reasoning), sum(message_count)
+	 FROM (`+dedupedSessionMessages+` WHERE bucket_15m IN (`+placeholders+`))
+	 GROUP BY bucket_15m, client, model, provider, ws_key`, args...); err != nil {
+		return fmt.Errorf("fold bucket cache: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM session_bucket_rebuild WHERE bucket_15m IN (`+placeholders+`)`, args...); err != nil {
+		return fmt.Errorf("clear bucket dirty set: %w", err)
+	}
+	return tx.Commit()
+}
+
+// MarkAllBucketsDirtyIfCacheEmpty seeds the fold for a database that already
+// carries messages but no cache rows — the upgrade from a pre-cache build.
+// Both existence checks are index/limit probes; after the first fold this is
+// a no-op.
+func (r *Repository) MarkAllBucketsDirtyIfCacheEmpty(ctx context.Context) error {
+	var hasMessages, hasCache int
+	if err := r.SQL().QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM session_messages), EXISTS(SELECT 1 FROM session_bucket_cache)`).Scan(&hasMessages, &hasCache); err != nil {
+		return err
+	}
+	if hasMessages == 0 || hasCache > 0 {
+		return nil
+	}
+	_, err := r.SQL().ExecContext(ctx, `INSERT OR IGNORE INTO session_bucket_rebuild (bucket_15m)
+	 SELECT DISTINCT bucket_15m FROM session_messages`)
+	return err
+}
+
+// BucketSeriesRows answers the daily chart's split reads: per-bucket rows
+// keyed by client or model, straight from the cache.
+func (r *Repository) BucketSeriesRows(ctx context.Context, fromBucket int64, split string) ([]sessionstats.AggregatedRow, error) {
+	key := "client"
+	if split == "model" {
+		key = "model"
+	}
+	rows, err := r.SQL().QueryContext(ctx, `SELECT bucket_15m, `+key+`, '' AS provider2, '' AS ws_key2,
+	  sum(input), sum(output), sum(cache_read), sum(cache_write), sum(reasoning), sum(message_count)
+	 FROM session_bucket_cache
+	 WHERE bucket_15m >= ?
+	 GROUP BY bucket_15m, `+key, fromBucket)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var result []sessionstats.AggregatedRow
+	for rows.Next() {
+		var row sessionstats.AggregatedRow
+		var ignored1, ignored2 string
+		if err := rows.Scan(&row.Bucket15MS, &row.Client, &ignored1, &ignored2,
+			&row.Input, &row.Output, &row.CacheRead, &row.CacheWrite, &row.Reasoning, &row.Messages); err != nil {
+			return nil, err
+		}
+		if split == "model" {
+			row.Model = row.Client
+			row.Client = ""
+		}
+		result = append(result, row)
+	}
+	return result, rows.Err()
 }

@@ -36,6 +36,7 @@ const (
 	// PreferenceDashRateUnit is the dashboard rate tile's unit, tokens per
 	// minute or per second. Same display-settings group as the token style.
 	PreferenceDashRateUnit    = "omc_dash_rate_unit"
+	PreferenceSessionsRange   = "omc_sessions_range"
 	PreferenceTheme           = "omc_theme"
 	PreferenceScrollSmoothing = "omc_scroll_smoothing"
 

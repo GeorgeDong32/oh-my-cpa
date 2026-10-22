@@ -99,10 +99,6 @@ const FIXED_ROUTES = new Map([
   ['/api/v1/usage/events', 'usage-events'],
   ['/api/v1/usage/live', 'usage-live'],
   ['/api/v1/usage/routing', 'usage-routing'],
-  // The sessions page's reads. The page always asks with its default window
-  // (days=30 + the deployment timezone), which is the exact capture the
-  // export wrote, so a fixed mapping answers every read the demo performs.
-  ['/api/v1/sessions/summary', 'sessions-summary'],
   ['/api/v1/sessions/daily', 'sessions-daily'],
   ['/api/v1/sessions/models', 'sessions-models'],
   ['/api/v1/sessions/clients', 'sessions-clients'],
@@ -128,6 +124,11 @@ const FIXED_ROUTES = new Map([
  * from `dashboard-24h`, not the same response relabelled.
  */
 const PRESET_ROUTES = new Map([
+  // The sessions page asks per selected range: today has its own capture, and
+  // the 7-day and all ranges read the 30-day capture (the synthetic history is
+  // flat, so the shorter window is a prefix of it rather than different data).
+  ['/api/v1/sessions/summary', (url) => `sessions-summary${url.searchParams.get('days') === 'today' ? '-today' : ''}`],
+  ['/api/v1/sessions/series', (url) => `sessions-series-${url.searchParams.get('split') === 'client' ? 'client' : 'model'}`],
   ['/api/v1/management/dashboard', (url) => `dashboard-${dashboardPresetOf(url)}`],
   ['/api/v1/management/dashboard/tail', (url) => `dashboard-tail-${dashboardPresetOf(url)}`],
   ['/api/v1/management/dashboard/providers', (url) => `dashboard-providers-${dashboardPresetOf(url)}`],

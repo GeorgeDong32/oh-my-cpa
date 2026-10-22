@@ -1005,7 +1005,11 @@ fields only. The service scans on a 10-minute loop with per-file watermarks
 with a 3-minute idle gap, and cost-estimate through `pricing.Quote` with
 tiers stripped (a 15-minute aggregate cannot decide per-request tier
 assertions). The `/omc/api/v1/sessions/*` endpoints and the Sessions page
-present the aggregates; `docs/plans/session-stats.md` is the feature's
+present the aggregates. Reads answer from `session_bucket_cache`, a
+pre-aggregated fold of the deduped view maintained by the scan's dirty
+buckets (usage_facts pattern) — a read is one indexed range scan, and
+`POST /sessions/refresh` runs a synchronous incremental scan for the
+page's manual refresh. `docs/plans/session-stats.md` is the feature's
 source of truth and deviation record.
 
 ## 3. Frontend shape
