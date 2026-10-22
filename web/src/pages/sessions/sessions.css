@@ -358,13 +358,16 @@
   color: var(--text);
 }
 
+/* The fold runs vertically: collapsed points down (click to unfold
+   downward), expanded points up (click to fold back up). */
 .sessions-break-caret {
   font-size: var(--text-2xs);
   transition: transform var(--motion-fast) var(--ease-standard);
+  transform: rotate(90deg);
 }
 
 .sessions-break-toggle.is-expanded .sessions-break-caret {
-  transform: rotate(90deg);
+  transform: rotate(-90deg);
 }
 
 /* ── All-time window slider ─────────────────────────────────────────────── */
