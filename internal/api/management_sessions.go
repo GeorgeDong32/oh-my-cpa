@@ -355,7 +355,7 @@ func (h *Handler) getSessionsSummary(writer http.ResponseWriter, request *http.R
 	}
 	var prices []pricing.ModelPrice
 	if h.pricing != nil {
-		if book, err := h.pricing.ListPrices(request.Context()); err == nil {
+		if book, err := h.pricing.ListKnownPrices(request.Context()); err == nil {
 			prices = book
 		}
 	}
@@ -517,7 +517,7 @@ func (h *Handler) getSessionsSeries(writer http.ResponseWriter, request *http.Re
 	}
 	var prices []pricing.ModelPrice
 	if h.pricing != nil {
-		if book, err := h.pricing.ListPrices(request.Context()); err == nil {
+		if book, err := h.pricing.ListKnownPrices(request.Context()); err == nil {
 			prices = book
 		}
 	}
@@ -621,7 +621,7 @@ func (h *Handler) getSessionsModels(writer http.ResponseWriter, request *http.Re
 	}
 	var prices []pricing.ModelPrice
 	if h.pricing != nil {
-		if book, err := h.pricing.ListPrices(request.Context()); err == nil {
+		if book, err := h.pricing.ListKnownPrices(request.Context()); err == nil {
 			prices = book
 		}
 	}

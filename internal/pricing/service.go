@@ -103,6 +103,7 @@ type Service struct {
 	fetcher               Fetcher
 	fallback              Fetcher
 	modelLister           ModelLister
+	sessionModelNames     func(ctx context.Context) ([]string, error)
 	logger                *slog.Logger
 	interval              time.Duration
 	autoSyncIntervalHours int64
@@ -150,6 +151,20 @@ func (s *Service) SetModelLister(lister ModelLister) {
 	}
 	s.mu.Lock()
 	s.modelLister = lister
+	s.mu.Unlock()
+}
+
+// SetSessionModelNames connects a source of the local session statistics'
+// model names. Sync prices their gaps through the same fallback chain as the
+// gateway catalog, so the sessions estimate quotes real rates for names the
+// gateway itself never carried (a client-side spelling never transits the
+// catalog, so catalog-only enumeration leaves it unpriced forever).
+func (s *Service) SetSessionModelNames(fn func(ctx context.Context) ([]string, error)) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	s.sessionModelNames = fn
 	s.mu.Unlock()
 }
 
@@ -448,6 +463,20 @@ func (s *Service) syncOnce(ctx context.Context, refreshPrices bool) (result Sync
 		return result, err
 	}
 	result.Pruned = pruned
+	// Session-side model names join the reconcile enumeration as self-targets:
+	// the fallback chain treats them exactly like a catalog model, so an
+	// OpenRouter or models.dev match lands on a real rate while a name nobody
+	// carries stays honestly unpriced. A failed session read must not fail the
+	// sync — it only means this pass prices nothing new.
+	if s.sessionModelNames != nil {
+		if names, namesErr := s.sessionModelNames(ctx); namesErr == nil {
+			for _, name := range names {
+				if name = strings.TrimSpace(name); name != "" && models[name] == "" {
+					models[name] = name
+				}
+			}
+		}
+	}
 	needCatalog := refreshPrices
 	if !needCatalog {
 		existing, err := s.store.ListModelPrices(ctx)
@@ -725,6 +754,17 @@ func (s *Service) ListPrices(ctx context.Context) ([]ModelPrice, error) {
 		}
 	}
 	return current, nil
+}
+
+// ListKnownPrices returns every priced row, including names outside the
+// current CPA catalog: session statistics' client-side spellings are priced
+// here but never enter the catalog, and the catalog-filtered view would hide
+// exactly the rows the sessions estimate quotes from.
+func (s *Service) ListKnownPrices(ctx context.Context) ([]ModelPrice, error) {
+	if s == nil || s.store == nil {
+		return nil, errors.New("pricing service is not initialized")
+	}
+	return s.store.ListModelPrices(ctx)
 }
 
 // UsedUnpricedModels lists only current CPA models without a price. Historical

@@ -44,6 +44,10 @@ type fakePricing struct {
 func (f *fakePricing) ListPrices(context.Context) ([]pricing.ModelPrice, error) {
 	return f.listRows, nil
 }
+
+func (f *fakePricing) ListKnownPrices(context.Context) ([]pricing.ModelPrice, error) {
+	return f.listRows, nil
+}
 func (f *fakePricing) UsedUnpricedModels(context.Context, int) ([]string, error) {
 	return f.unpriced, nil
 }

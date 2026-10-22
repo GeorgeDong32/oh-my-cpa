@@ -165,3 +165,42 @@ func TestCatalogOnlyReconcileUsesCachedFallback(t *testing.T) {
 		t.Fatalf("new model not priced from the cached fallback: %+v", row)
 	}
 }
+
+// Session statistics carry the clients' own model spellings, names the
+// gateway catalog never carried. Sync must price their gaps through the same
+// fallback chain, and leave a name nobody carries honestly unpriced.
+func TestSyncPricesSessionModelGaps(t *testing.T) {
+	store := newFakeStore()
+	service := NewService(store, &fakeFetcher{catalog: loadFixtureCatalog(t)}, nil)
+	service.SetFallbackFetcher(&fakeFetcher{catalog: fallbackTestCatalog(t)})
+	service.SetSessionModelNames(func(ctx context.Context) ([]string, error) {
+		return []string{"Minimax/MiniMax-M3.1-Flash", "totally-unknown-model"}, nil
+	})
+	result, err := service.SyncOnce(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	row, ok := store.price("Minimax/MiniMax-M3.1-Flash")
+	if !ok {
+		t.Fatal("session-side model not priced")
+	}
+	if row.Source != SourceModelsDev {
+		t.Fatalf("session gap must ride the fallback: %+v", row)
+	}
+	if result.Unmatched < 1 {
+		t.Fatalf("unknown session name must stay unmatched: %+v", result)
+	}
+}
+
+// A failing session read must not fail the sync — it only means the pass
+// prices nothing new beyond the catalog.
+func TestSyncSurvivesSessionNameFailure(t *testing.T) {
+	store := newFakeStore("claude-opus-5.5")
+	service := NewService(store, &fakeFetcher{catalog: loadFixtureCatalog(t)}, nil)
+	service.SetSessionModelNames(func(ctx context.Context) ([]string, error) {
+		return nil, errors.New("session tables unavailable")
+	})
+	if _, err := service.SyncOnce(context.Background()); err != nil {
+		t.Fatalf("sync must survive a session-name failure: %v", err)
+	}
+}

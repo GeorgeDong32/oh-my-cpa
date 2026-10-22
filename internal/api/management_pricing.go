@@ -22,6 +22,7 @@ import (
 // *pricing.Service is wired once at startup; tests inject a fake here.
 type PricingManager interface {
 	ListPrices(ctx context.Context) ([]pricing.ModelPrice, error)
+	ListKnownPrices(ctx context.Context) ([]pricing.ModelPrice, error)
 	UsedUnpricedModels(ctx context.Context, limit int) ([]string, error)
 	Suggestions(ctx context.Context, model string, limit int) ([]pricing.UpstreamModel, error)
 	AutomaticMatch(ctx context.Context, model string) (pricing.Match, bool, error)

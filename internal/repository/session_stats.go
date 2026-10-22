@@ -472,3 +472,24 @@ func (r *Repository) BucketSeriesRows(ctx context.Context, fromBucket int64, spl
 	}
 	return result, rows.Err()
 }
+
+// ListSessionModelNames reports the distinct model names the folded session
+// cache carries. Pricing sync uses it to price session-side gaps — names the
+// gateway catalog never carried — through its usual fallback chain.
+func (r *Repository) ListSessionModelNames(ctx context.Context) ([]string, error) {
+	rows, err := r.SQL().QueryContext(ctx, `SELECT DISTINCT model FROM session_bucket_cache ORDER BY model`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		names = append(names, name)
+	}
+	return names, rows.Err()
+}
+

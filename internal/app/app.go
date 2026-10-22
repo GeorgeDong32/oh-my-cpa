@@ -159,6 +159,7 @@ func newApp(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, 
 	pricingService := pricing.NewService(repo, pricing.NewOpenRouterClient(), logger)
 	pricingService.SetFallbackFetcher(pricing.NewModelsDevClient())
 	pricingService.SetModelLister(&cpaModelLister{repo: repo, cipher: cipher, cfg: cfg})
+	pricingService.SetSessionModelNames(repo.ListSessionModelNames)
 	handler.SetPricing(pricingService)
 
 	// Local session statistics: a background scan of the coding clients'
