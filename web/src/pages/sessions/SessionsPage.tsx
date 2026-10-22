@@ -21,6 +21,7 @@ import {
 import { usePreference } from '../../hooks/usePreference';
 import { SessionsTrendChart } from '../../charts/SessionsTrendChart';
 import type { SessionDay, SessionsSeriesPoint } from '../../types/sessions';
+import './sessions.css';
 
 const SESSIONS_QUERY_KEYS = {
   all: ['sessions'] as const,

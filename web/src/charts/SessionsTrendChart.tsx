@@ -78,7 +78,12 @@ export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, 
         animation={animate}
         plugins={plugins}
         onReady={onReady}
-        scale={{ color: { range: seriesNames.map(colorOf) } }}
+        scale={{
+          color: { range: seriesNames.map(colorOf) },
+          // A single-day window paints one band; padding keeps the column a
+          // column instead of a full-width slab.
+          x: { paddingInner: 0.55, paddingOuter: 0.18 },
+        }}
         axis={{
           x: {
             labelFormatter: (value: string) => dayjs(value).format(labelFormat),
@@ -86,7 +91,11 @@ export const SessionsTrendChart: React.FC<SessionsTrendChartProps> = ({ points, 
             labelFontFamily: currentFontStack('mono'),
             labelFontSize: 10,
           },
-          y: { labelFormatter: () => '' },
+          y: {
+            labelFormatter: (value: number) => formatTokensStyled(value, tokenStyle),
+            labelFontFamily: currentFontStack('mono'),
+            labelFontSize: 10,
+          },
         }}
         tooltip={{
           shared: true,
